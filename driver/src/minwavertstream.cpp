@@ -1107,6 +1107,11 @@ NTSTATUS CMiniportWaveRTStream::SetState
             break;
 
         case KSSTATE_RUN:
+            if (!m_bCapture && m_ullLinearPosition == 0)
+            {
+                // Новый render-поток с нулевой позиции: кабель начинает с чистого листа.
+                g_Cable.Reset();
+            }
             // Start DMA
             LARGE_INTEGER ullPerfCounterTemp;
             ullPerfCounterTemp = KeQueryPerformanceCounter(&m_ullPerformanceCounterFrequency);
@@ -1263,6 +1268,7 @@ ByteDisplacement - # of bytes to process.
 --*/
 {
     ULONG bufferOffset = m_ullLinearPosition % m_ulDmaBufferSize;
+    ULONGLONG streamPos = m_ullLinearPosition;
 
     // Normally this will loop no more than once for a single wrap, but if
     // many bytes have been displaced then this may loops many times.
@@ -1270,7 +1276,8 @@ ByteDisplacement - # of bytes to process.
     {
         ULONG runWrite = min(ByteDisplacement, m_ulDmaBufferSize - bufferOffset);
         
-        g_Cable.Read(m_pDmaBuffer + bufferOffset, runWrite);
+        g_Cable.Read(m_pDmaBuffer + bufferOffset, runWrite, streamPos);
+        streamPos += runWrite;
            	
         bufferOffset = (bufferOffset + runWrite) % m_ulDmaBufferSize;
         ByteDisplacement -= runWrite;
@@ -1296,13 +1303,15 @@ ByteDisplacement - # of bytes to process.
 --*/
 {
     ULONG bufferOffset = m_ullLinearPosition % m_ulDmaBufferSize;
+    ULONGLONG streamPos = m_ullLinearPosition;
 
     // Normally this will loop no more than once for a single wrap, but if
     // many bytes have been displaced then this may loops many times.
     while (ByteDisplacement > 0)
     {
         ULONG runWrite = min(ByteDisplacement, m_ulDmaBufferSize - bufferOffset);
-        g_Cable.Write(m_pDmaBuffer + bufferOffset, runWrite);
+        g_Cable.Write(m_pDmaBuffer + bufferOffset, runWrite, streamPos);
+        streamPos += runWrite;
         bufferOffset = (bufferOffset + runWrite) % m_ulDmaBufferSize;
         ByteDisplacement -= runWrite;
     }
