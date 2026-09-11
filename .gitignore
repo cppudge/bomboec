@@ -1,7 +1,8 @@
 build/
 out/
+.conan2/
+.cache/
 CMakeUserPresets.json
 *.wav
 recordings/
 authorized_tokens.json
-recordings/

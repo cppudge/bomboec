@@ -9,10 +9,8 @@ class BomboecConan(ConanFile):
 
     def requirements(self):
         self.requires("webrtc-audio-processing/2.1")
-        self.requires("libsamplerate/0.2.2")
         self.requires("dr_libs/cci.20230529")
         self.requires("tomlplusplus/3.4.0")
-        self.requires("spdlog/1.17.0")
         self.requires("cxxopts/3.3.1")
         self.test_requires("catch2/3.16.0")
 

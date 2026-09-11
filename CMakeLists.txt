@@ -12,10 +12,8 @@ if(MSVC)
 endif()
 
 find_package(webrtc-audio-processing REQUIRED)
-find_package(SampleRate REQUIRED)
 find_package(dr_libs REQUIRED)
 find_package(tomlplusplus REQUIRED)
-find_package(spdlog REQUIRED)
 find_package(cxxopts REQUIRED)
 
 add_subdirectory(src)
