@@ -28,5 +28,6 @@ if ($existing -match "1 matching") {
 } else {
     & $devcon install $inf "ROOT\BomboecCable"
 }
-if ($LASTEXITCODE -ne 0) { throw "devcon failed ($LASTEXITCODE)" }
+if ($LASTEXITCODE -eq 1) { Write-Warning "devcon: reboot required to finish the update (device was in use)" }
+elseif ($LASTEXITCODE -ne 0) { throw "devcon failed ($LASTEXITCODE)" }
 Write-Host "installed. Check Sound settings for 'Speakers (bomboec Cable)' and 'Microphone (bomboec Cable)'."
