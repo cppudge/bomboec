@@ -1,4 +1,6 @@
 add_library(bomboec_engine STATIC
+    recorder.h
+    recorder.cpp
     pipeline.h
     pipeline.cpp
     engine.h

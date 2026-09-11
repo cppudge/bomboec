@@ -8,7 +8,7 @@
 #include "core/packet_assembler.h"
 #include "core/ring_buffer.h"
 #include "core/seqlock.h"
-#include "core/wav.h"
+#include "engine/recorder.h"
 
 #include <atomic>
 #include <cstdint>
@@ -29,6 +29,7 @@ struct PipelineStats {
     uint64_t outUnderruns = 0, outOverruns = 0;
     uint64_t outInserted = 0, outDropped = 0;  // сэмплов добавлено/убрано регулятором заполнения
     uint64_t outTrimmed = 0;                   // сэмплов выброшено разом пределом задержки
+    uint64_t recordDropped = 0;                // debug-запись: кадров не успело на диск
     double micDriftPpm = 0.0, refDriftPpm = 0.0;
     uint32_t outBufferedMs = 0;  // сколько сейчас в выходном ring
     uint32_t outMarginMs = 0;    // минимальный остаток после чтения за окно (цель: output_buffer_ms)
@@ -103,9 +104,7 @@ private:
     uint32_t fadeFrames_ = 0;
     bool fadePending_ = false;
 
-    // debug-запись
-    WavWriter recMic_, recRef_, recOut_;
-    bool recording_ = false;
+    Recorder recorder_;  // debug-запись mic_raw/ref/out: файлы пишет свой поток
 
     std::atomic<float> micDb_{-100.0f}, refDb_{-100.0f}, outDb_{-100.0f};
     std::atomic<uint64_t> frames_{0}, refMissing_{0}, refJumps_{0}, outUnderruns_{0}, outOverruns_{0};

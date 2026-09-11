@@ -26,6 +26,9 @@ constexpr uint32_t kHardExcessMs = 500;  // излишек, который вы�
 
 constexpr uint32_t kChainStatsEveryFrames = 10;  // снимок статистики стадий для окна статуса: раз в 100 ms
 
+// Дорожки debug-записи (порядок как в configure).
+constexpr size_t kRecMic = 0, kRecRef = 1, kRecOut = 2;
+
 float rmsDb(const float* x, uint32_t n) {
     double e = 0.0;
     for (uint32_t i = 0; i < n; ++i) e += double(x[i]) * x[i];
@@ -68,13 +71,9 @@ bool Pipeline::configure(const PipelineFormat& fmt, const EngineSettings& settin
     frames_ = refMissing_ = refJumps_ = outUnderruns_ = outOverruns_ = outInserted_ = outDropped_ = outTrimmed_ = 0;
 
     if (!settings_.recordDir.empty()) {
-        const std::filesystem::path dir = pathFromUtf8(settings_.recordDir);
-        std::error_code ec;
-        std::filesystem::create_directories(dir, ec);
-        recording_ = recMic_.open(dir / "mic_raw.wav", fmt_.micChannels, rate, error) &&
-                     recRef_.open(dir / "ref.wav", fmt_.referenceChannels, rate, error) &&
-                     recOut_.open(dir / "out.wav", fmt_.micChannels, rate, error);
-        if (!recording_) return false;
+        const std::vector<Recorder::Track> tracks = {
+            {"mic_raw.wav", fmt_.micChannels}, {"ref.wav", fmt_.referenceChannels}, {"out.wav", fmt_.micChannels}};
+        if (!recorder_.open(pathFromUtf8(settings_.recordDir), tracks, rate, error)) return false;
     }
 
     // Запас в выходном кольце против джиттера mic-потока: FillController держит
@@ -88,12 +87,7 @@ bool Pipeline::configure(const PipelineFormat& fmt, const EngineSettings& settin
 }
 
 void Pipeline::reset() {
-    if (recording_) {
-        recMic_.close();
-        recRef_.close();
-        recOut_.close();
-        recording_ = false;
-    }
+    recorder_.close();
     chain_.reset();
 }
 
@@ -138,9 +132,9 @@ void Pipeline::processAvailable() {
 
         micDb_.store(rmsDb(micFrame_.planes()[0], frame), std::memory_order_relaxed);
         refDb_.store(rmsDb(refFrame_.planes()[0], frame), std::memory_order_relaxed);
-        if (recording_) {
-            recMic_.write(micBuf_.data(), frame);
-            recRef_.write(refBuf_.data(), frame);
+        if (recorder_.isOpen()) {
+            recorder_.push(kRecMic, micBuf_.data(), frame);
+            recorder_.push(kRecRef, refBuf_.data(), frame);
         }
 
         if (chain_) {
@@ -152,9 +146,9 @@ void Pipeline::processAvailable() {
         }
 
         outDb_.store(rmsDb(micFrame_.planes()[0], frame), std::memory_order_relaxed);
-        if (recording_) {
+        if (recorder_.isOpen()) {
             micFrame_.toInterleaved(micBuf_.data());
-            recOut_.write(micBuf_.data(), frame);
+            recorder_.push(kRecOut, micBuf_.data(), frame);
         }
 
         // Регулятор заполнения: кадр растягивается/сжимается на d сэмплов,
@@ -293,6 +287,7 @@ PipelineStats Pipeline::stats() const {
     s.outInserted = outInserted_.load();
     s.outDropped = outDropped_.load();
     s.outTrimmed = outTrimmed_.load();
+    s.recordDropped = recorder_.dropped();
     const uint32_t margin = fill_.marginFrames();
     s.outMarginMs = margin == FillController::kNone ? 0 : margin * 1000 / fmt_.sampleRate;
     const PacketAssembler::Stats mic = micAsm_.statsSnapshot();
