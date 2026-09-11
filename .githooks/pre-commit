@@ -1,0 +1,27 @@
+#!/bin/sh
+# Проверка форматирования C++ файлов из индекса (src/, tests/) перед коммитом.
+# Включить один раз: git config core.hooksPath .githooks
+files=$(git diff --cached --name-only --diff-filter=ACMR -- 'src/*.cpp' 'src/*.h' 'tests/*.cpp' 'tests/*.h')
+[ -z "$files" ] && exit 0
+
+cf=$(command -v clang-format 2>/dev/null)
+if [ -z "$cf" ] && [ -x "/c/Program Files/LLVM/bin/clang-format.exe" ]; then
+    cf="/c/Program Files/LLVM/bin/clang-format.exe"
+fi
+if [ -z "$cf" ]; then
+    echo "pre-commit: clang-format not found, format check skipped" >&2
+    exit 0
+fi
+
+# Проверяется то, что уйдёт в коммит (содержимое индекса), а не рабочая копия.
+fail=0
+for f in $files; do
+    if ! git show ":$f" | "$cf" --assume-filename="$f" --dry-run --Werror >/dev/null 2>&1; then
+        echo "pre-commit: not clang-formatted: $f" >&2
+        fail=1
+    fi
+done
+if [ $fail -ne 0 ]; then
+    echo "pre-commit: run clang-format -i on these files" >&2
+fi
+exit $fail

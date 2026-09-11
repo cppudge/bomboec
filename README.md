@@ -54,6 +54,16 @@ Conan работает в домашней папке проекта `.conan2/`:
 `absl::Nullable`) и добавляет в библиотеку `api/audio/echo_canceller3_factory.h`, которой нет
 в тарболе freedesktop: без неё нельзя передать `EchoCanceller3Config` через публичный API.
 
+## Стиль кода
+
+Форматирование задаёт `.clang-format` (эталон clang-format 22, LLVM ставится в
+`C:\Program Files\LLVM\bin`). Драйвер не форматируется (`driver/.clang-format`): он сохраняет
+стиль образца Microsoft. Проверка форматирования перед коммитом включается один раз:
+
+```powershell
+git config core.hooksPath .githooks
+```
+
 ## Структура
 
 ```text

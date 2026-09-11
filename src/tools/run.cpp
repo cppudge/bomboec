@@ -19,6 +19,7 @@ using namespace bomboec;
 
 int main(int argc, char** argv) {
     cxxopts::Options opts("bomboec-run", "Realtime AEC engine (console)");
+    // clang-format off
     opts.add_options()
         ("config", "Pipeline TOML", cxxopts::value<std::string>()->default_value("config/default.toml"))
         ("seconds", "Run time, 0 = until Ctrl+C", cxxopts::value<double>()->default_value("0"))
@@ -27,6 +28,7 @@ int main(int argc, char** argv) {
         ("output", "Render endpoint id for processed output", cxxopts::value<std::string>())
         ("record", "Debug recording directory (mic_raw/ref/out .wav)", cxxopts::value<std::string>())
         ("h,help", "Help");
+    // clang-format on
     auto args = opts.parse(argc, argv);
     if (args.count("help")) {
         std::printf("%s\n", opts.help().c_str());

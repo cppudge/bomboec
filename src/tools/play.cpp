@@ -25,12 +25,14 @@ namespace ws = bomboec::wasapi;
 
 int main(int argc, char** argv) {
     cxxopts::Options opts("bomboec-play", "Play a chirp or WAV into a render endpoint");
+    // clang-format off
     opts.add_options()
         ("output", "Render endpoint id (default: system default)", cxxopts::value<std::string>()->default_value(""))
         ("seconds", "Duration", cxxopts::value<double>()->default_value("10"))
         ("wav", "WAV file to play (looped); otherwise a 100..8000 Hz chirp", cxxopts::value<std::string>()->default_value(""))
         ("gain-db", "Gain in dB", cxxopts::value<double>()->default_value("-12"))
         ("h,help", "Help");
+    // clang-format on
     auto args = opts.parse(argc, argv);
     if (args.count("help")) {
         std::printf("%s\n", opts.help().c_str());

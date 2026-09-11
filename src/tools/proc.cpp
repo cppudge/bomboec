@@ -64,6 +64,7 @@ std::vector<float> mapChannels(const std::vector<float>& in, uint32_t inCh, uint
 
 int main(int argc, char** argv) {
     cxxopts::Options opts("bomboec-proc", "Offline AEC/NS chain runner");
+    // clang-format off
     opts.add_options()
         ("mic", "Microphone WAV", cxxopts::value<std::string>())
         ("ref", "Reference (loopback) WAV", cxxopts::value<std::string>())
@@ -74,6 +75,7 @@ int main(int argc, char** argv) {
         ("csv", "Per-frame stats CSV", cxxopts::value<std::string>()->default_value(""))
         ("quiet", "No per-second progress")
         ("h,help", "Help");
+    // clang-format on
     auto args = opts.parse(argc, argv);
     if (args.count("help") || !args.count("mic") || !args.count("ref") || !args.count("out")) {
         std::printf("%s\n", opts.help().c_str());

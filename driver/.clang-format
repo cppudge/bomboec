@@ -1,0 +1,3 @@
+# Драйвер основан на Microsoft SimpleAudioSample и сохраняет его стиль: не форматируем.
+DisableFormat: true
+SortIncludes: Never

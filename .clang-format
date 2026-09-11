@@ -1,0 +1,26 @@
+# Стиль C++ проекта. Эталон: clang-format 22 (LLVM 22.x из C:\Program Files\LLVM\bin или
+# `pip install clang-format==22.*`); другая мажорная версия может иначе решать граничные случаи.
+# Опции повторяют стиль, в котором код уже написан: 4 пробела, 120 колонок, короткие if/case
+# в одну строку, отступ у case.
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 120
+AccessModifierOffset: -4
+IndentCaseLabels: true
+PointerAlignment: Left
+DerivePointerAlignment: false
+SpacesBeforeTrailingComments: 2
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortLambdasOnASingleLine: All
+# Комментарии переносятся вручную: clang-format только выравнивает их отступ.
+ReflowComments: IndentOnly
+IncludeBlocks: Preserve
+IncludeCategories:
+  # windows.h и initguid.h должны идти первыми в своём блоке: остальные заголовки SDK
+  # рассчитывают на их макросы (initguid.h превращает DEFINE_PROPERTYKEY в определения).
+  - Regex: '^<(windows|initguid)\.h>$'
+    Priority: 1
+  - Regex: '.*'
+    Priority: 2

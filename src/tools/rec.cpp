@@ -103,6 +103,7 @@ void listDevices() {
 
 int main(int argc, char** argv) {
     cxxopts::Options opts("bomboec-rec", "Synchronized mic + loopback recorder");
+    // clang-format off
     opts.add_options()
         ("list", "List audio endpoints")
         ("out", "Output directory", cxxopts::value<std::string>())
@@ -112,6 +113,7 @@ int main(int argc, char** argv) {
         ("no-raw", "Do not request raw mode for the microphone")
         ("no-keepalive", "Do not play silence to keep loopback alive")
         ("h,help", "Help");
+    // clang-format on
     auto args = opts.parse(argc, argv);
     if (args.count("help")) {
         std::printf("%s\n", opts.help().c_str());
