@@ -32,11 +32,15 @@ record_dir = ""
 id = "webrtc"
 aec = true
 hpf = true
-ns = true             # шумоподавление WebRTC: low | moderate | high | very_high
+ns = false            # NS из WebRTC: low | moderate | high | very_high; вместо него ниже rnnoise
 ns_level = "high"
 agc = false
 filter_length_blocks = 13
 delay_num_filters = 5
+
+# Шумоподавление на RNNoise: клавиатуру и щелчки давит на 18 dB против 5 dB у NS WebRTC.
+[[chain]]
+id = "rnnoise"
 
 [[chain]]
 id = "limiter"

@@ -21,6 +21,7 @@ add_executable(bomboec_tests
     test_recorder.cpp
     test_crash_dump.cpp
     test_corpus.cpp
+    test_rnnoise.cpp
     "${BOMBOEC_MANIFEST}"
 )
 target_link_libraries(bomboec_tests PRIVATE

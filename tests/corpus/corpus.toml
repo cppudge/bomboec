@@ -35,36 +35,36 @@ segments = [
     { type = "double_talk", from = 10.0, to = 20.0 },
     { type = "speech", from = 20.0, to = 30.0 },
 ]
-baseline = [28.9, 3.3, 2.7]   # 2026-09-12, AEC3 + NS high, lead 5 ms
+baseline = [33.7, 3.4, 2.7]   # 2026-09-12, AEC3 + rnnoise, lead 5 ms
 
 # Сценарии scripts/record-corpus.ps1 (recordings/corpus/<name>).
-# Записаны 2026-09-12 (Yeti Orb, Sound Blaster Z, шум bomboec-play --noise на -14 dB).
+# Записаны 2026-09-12 (Yeti Orb, Sound Blaster Z, шум bomboec-play --noise на -14 dB); baseline с rnnoise.
 [[scenario]]
 name = "silence"
 dir = "corpus/silence"
 segments = [{ type = "silence", from = 0.0, to = 20.0 }]
-baseline = [21.7]
+baseline = [39.3]
 
 [[scenario]]
 name = "noise"
 dir = "corpus/noise"
 segments = [{ type = "noise", from = 0.0, to = 20.0 }]
-baseline = [5.2]
+baseline = [18.3]
 
 [[scenario]]
 name = "music"
 dir = "corpus/music"
 segments = [{ type = "echo", from = 1.0, to = 30.0 }]
-baseline = [40.4]
+baseline = [45.3]
 
 [[scenario]]
 name = "speech"
 dir = "corpus/speech"
 segments = [{ type = "speech", from = 0.0, to = 30.0 }]
-baseline = [1.5]
+baseline = [1.6]
 
 [[scenario]]
 name = "music-speech"
 dir = "corpus/music-speech"
 segments = [{ type = "double_talk", from = 1.0, to = 30.0 }]
-baseline = [2.6]
+baseline = [2.4]

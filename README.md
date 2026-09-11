@@ -6,8 +6,8 @@
 
 - Системный звук не трогаем: reference для AEC берётся через WASAPI loopback с выбранных
   колонок, воспроизведение идёт в штатном формате.
-- AEC: WebRTC AEC3 из `webrtc-audio-processing` 2.1 (freedesktop). Обработка собрана из стадий,
-  цепочка и их параметры задаются конфигом.
+- AEC: WebRTC AEC3 из `webrtc-audio-processing` 2.1 (freedesktop); NS: RNNoise 0.2 (xiph).
+  Обработка собрана из стадий, цепочка и их параметры задаются конфигом.
 - Выход: свой драйвер виртуального кабеля bomboec Cable (`driver/`) или любой другой render
   endpoint, например VB-Cable.
 - DSP: 48 kHz, float32, кадр 10 ms. Задержка микрофон -> выход около 55 ms.
@@ -101,11 +101,14 @@ lead с запасом; иначе эхо не подавляется, а `delay
 |---|---|---|
 | `hpf` | hpf | `cutoff_hz` (80) |
 | `webrtc` | aec, и по флагам hpf/ns/agc | `aec` (true), `hpf` (false), `ns` (false; в шаблоне true), `ns_level` (moderate; в шаблоне high: low, moderate, high, very_high), `agc` (false), `filter_length_blocks` (13, 1..60), `delay_num_filters` (5, 1..20) |
+| `rnnoise` | ns | без ключей |
 | `limiter` | limiter | `ceiling_db` (-1.0, -60..0), `release_ms` (50, 0.1..10000) |
 
-Шумоподавление: NS из WebRTC в стадии `webrtc`, в шаблоне включён на уровне high; после правки
-конфига пункт меню «Reload config». Если его не хватает, следующий бэкенд NS (rnnoise) относится
-к этапу 6.
+Шумоподавление: в шаблоне стадия `rnnoise` (рекуррентная сеть xiph, задержка один кадр);
+NS из WebRTC остаётся в стадии `webrtc` (`ns = true`, тогда `rnnoise` из цепочки убрать: две стадии
+с одной возможностью не допускаются). На корпусе записей (docs/measurements.md) RNNoise давит
+клавиатуру на 18 dB против 5 dB у WebRTC при той же потере речи. После правки конфига пункт
+меню «Reload config».
 
 Интерфейс стадии и правила для новых бэкендов: `src/core/stage.h` (новая стадия регистрируется в
 `StageRegistry` по строковому id).
@@ -163,11 +166,11 @@ CMakePresets.json             пресеты release, debug, asan (configure, bu
 build.ps1                     окружение MSVC + cmake --workflow
 cmake/                        cmake-conan provider, манифест exe (UTF-8), генерация version.h
 scripts/                      vcvars.ps1, check.ps1 (clang-tidy + clang-format), ci.ps1, record-corpus.ps1
-conan-recipes/recipes/        локальные рецепты (webrtc-audio-processing)
+conan-recipes/recipes/        локальные рецепты (webrtc-audio-processing, rnnoise)
 config/default.toml           конфигурация по умолчанию (встраивается в bomboec.exe)
 docs/                         архитектура, драйвер, замеры, решения, исследование
 src/core/                     Frame, RingBuffer, Timeline, PacketAssembler, FillController, SeqLock, WAV, IStage, StageParams, Chain, конфиг
-src/stages/                   hpf, webrtc (AEC3 + hpf/ns/agc из APM), limiter
+src/stages/                   hpf, webrtc (AEC3 + hpf/ns/agc из APM), rnnoise, limiter
 src/wasapi/                   устройства, CaptureStream (mic/loopback), RenderStream (keepalive, выход)
 src/engine/                   Pipeline (DSP без устройств), Engine (Pipeline + WASAPI), Watchdog, Recorder
 src/app/                      bomboec.exe (трей), минидампы
@@ -188,8 +191,8 @@ tests/                        Catch2: модули, fakes/ (WASAPI), sim/ (си�
 | 4b. Virtual cable (готово) | драйвер на базе SimpleAudioSample, сборка через CMake, test-signing |
 | 4c. Задержка (готово) | обрезка backlog'а кабеля, prime 10 ms, целевое заполнение выхода, регулятор |
 | 5. Устойчивость (частично) | сделано: watchdog с backoff, ресинхронизация таймлайнов, непрерывный reference, предел задержки, защита от петель, минидампы, reference необязателен, уведомления об устройствах (IMMNotificationClient). Осталось: малые периоды IAudioClient3, адаптивный ресемплинг reference, суточный прогон, каталог данных в %LOCALAPPDATA% (к инсталлятору) |
-| 6. Второй бэкенд | рецепты speexdsp или rnnoise, стадии, опционально DLL-плагины |
+| 6. Второй бэкенд (частично) | сделано: рецепт и стадия rnnoise, сравнение на корпусе. Осталось: speexdsp как дешёвый второй AEC, опционально DLL-плагины |
 | 7. Дистрибуция | установщик, attestation-подпись драйвера (или VB-Cable), автозапуск |
 
-Бэкенды на будущее: AEC — SpeexDSP (дешёвый второй), LocalVQE (нейросетевой, 16 kHz); NS — WebRTC
-NS, RNNoise, DeepFilterNet3.
+Бэкенды на будущее: AEC — SpeexDSP (дешёвый второй), LocalVQE (нейросетевой, 16 kHz); NS —
+DeepFilterNet3.

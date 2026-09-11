@@ -3,6 +3,7 @@
     "requires": [
         "webrtc-audio-processing/2.1#efa06687069ecec67ada8d49b213c88c%1789151483.1105943",
         "tomlplusplus/3.4.0#85dbfed71376fb8dc23cdcc0570e4727%1718732132.076",
+        "rnnoise/0.2#7c73c1aff2db5bfe405a10f54e178a10%1789168344.071713",
         "dr_libs/cci.20230529#dffd6b7e8da3d949865924cfba9fa731%1688112514.175",
         "cxxopts/3.3.1#047ef7b8ae49e0d48a1450f4522dc041%1748330656.693",
         "catch2/3.16.0#95f400ca2fba9f0c5ce5aea6e6fe0055%1788523836.458",

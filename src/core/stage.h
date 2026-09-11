@@ -39,7 +39,8 @@ struct StageStats {
     std::optional<double> erleDb;
     std::optional<double> residualEchoLikelihood;
     std::optional<double> gainDb;
-    uint64_t errors = 0;  // кадров, которые бэкенд вернул с ошибкой (Chain суммирует)
+    std::optional<double> vadProbability;  // вероятность речи в последнем кадре (NS)
+    uint64_t errors = 0;                   // кадров, которые бэкенд вернул с ошибкой (Chain суммирует)
 };
 
 class IStage {

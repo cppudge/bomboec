@@ -14,6 +14,8 @@
 // Манифест: tests/corpus/corpus.toml (формат описан там). Записи лежат вне git
 // (recordings/, большие WAV); без них тест пропускается. Обновить базовые значения:
 //   set BOMBOEC_CORPUS_BASELINE=1 && bomboec_tests "[corpus]"   (печатает строки для манифеста)
+// Сравнить цепочки: BOMBOEC_CORPUS_CONFIG=<toml> подменяет конфиг (пороги и baseline тогда
+// только печатаются, не проверяются).
 
 #include "core/config.h"
 #include "core/wav.h"
@@ -291,6 +293,15 @@ TEST_CASE("Corpus: recorded scenarios keep their echo, speech and noise metrics"
     std::string error;
     REQUIRE(loadCorpus(manifest, corpus, error));
     const bool printBaseline = !envVar("BOMBOEC_CORPUS_BASELINE").empty();
+    const std::string configOverride = envVar("BOMBOEC_CORPUS_CONFIG");
+    if (!configOverride.empty()) {
+        std::ifstream in(configOverride);
+        REQUIRE(in);
+        std::stringstream ss;
+        ss << in.rdbuf();
+        corpus.config = ss.str();
+        WARN("corpus: chain config from " << configOverride << ", thresholds not enforced");
+    }
     size_t ran = 0;
 
     for (const Scenario& sc : corpus.scenarios) {
@@ -320,7 +331,8 @@ TEST_CASE("Corpus: recorded scenarios keep their echo, speech and noise metrics"
             }
             baseline << "]";
             INFO(report.str());
-            if (printBaseline) WARN("corpus " << sc.name << ": " << baseline.str());
+            if (printBaseline || !configOverride.empty()) WARN("corpus " << sc.name << ": " << baseline.str());
+            if (!configOverride.empty()) continue;
             const Thresholds& th = corpus.th;
             for (const SegmentResult& s : r.segments) {
                 INFO("segment " << s.seg.type << " " << s.seg.from << "-" << s.seg.to << " s");

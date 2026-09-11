@@ -69,6 +69,7 @@ endif()
 set(BOMBOEC_MANIFEST "${PROJECT_SOURCE_DIR}/cmake/utf8.manifest")
 
 find_package(webrtc-audio-processing REQUIRED)
+find_package(rnnoise REQUIRED)
 find_package(dr_libs REQUIRED)
 find_package(tomlplusplus REQUIRED)
 find_package(cxxopts REQUIRED)

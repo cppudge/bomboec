@@ -272,29 +272,29 @@ std::string statusText(App& app) {
     const std::string reference = s.referenceActive
                                       ? s.speakersName + " (" + (s.refEventDriven ? "event" : "polling") + ")"
                                       : std::string("none: echo is not cancelled, retrying");
-    std::snprintf(buf, sizeof(buf),
-                  "bomboec %s: running\r\nmic:       %s (raw %s, %s)\r\nreference: %s\r\noutput:    %s\r\n"
-                  "threads:   mmcss %s\r\n\r\n"
-                  "levels     mic %6.1f   ref %6.1f   out %6.1f dBFS\r\n"
-                  "aec        delay %s   erl %s   erle %s   errors %llu\r\n"
-                  "reference  lead %.0f ms   missing %llu   jumps %llu   gaps mic %llu / ref %llu   "
-                  "resyncs mic %llu / ref %llu\r\n"
-                  "output     ring %u ms (margin %u ms)   wasapi %u ms   underruns %llu   overruns %llu\r\n"
-                  "fill ctl   inserted %llu   dropped %llu   trimmed %llu samples\r\n"
-                  "drift      mic %+.0f ppm   ref %+.0f ppm\r\n"
-                  "frames     %llu\r\n%s%s",
-                  BOMBOEC_VERSION_FULL, s.micName.c_str(), s.micRaw ? "on" : "off",
-                  s.micEventDriven ? "event" : "polling", reference.c_str(), s.outputName.c_str(),
-                  s.mmcss ? "on" : "off", s.micDb, s.refDb, s.outDb, opt(s.stats.delayMs, "ms").c_str(),
-                  opt(s.stats.erlDb, "dB").c_str(), opt(s.stats.erleDb, "dB").c_str(),
-                  (unsigned long long)s.stats.errors, s.referenceLeadMs, (unsigned long long)s.refMissing,
-                  (unsigned long long)s.refJumps, (unsigned long long)s.micGaps, (unsigned long long)s.refGaps,
-                  (unsigned long long)s.micResyncs, (unsigned long long)s.refResyncs, s.outBufferedMs, s.outMarginMs,
-                  s.outRenderMs, (unsigned long long)s.outUnderruns, (unsigned long long)s.outOverruns,
-                  (unsigned long long)s.outInserted, (unsigned long long)s.outDropped, (unsigned long long)s.outTrimmed,
-                  s.micDriftPpm, s.refDriftPpm, (unsigned long long)s.framesProcessed,
-                  s.warning.empty() ? "" : ("WARNING: " + s.warning + "\r\n").c_str(),
-                  s.error.empty() ? "" : ("ERROR: " + s.error).c_str());
+    std::snprintf(
+        buf, sizeof(buf),
+        "bomboec %s: running\r\nmic:       %s (raw %s, %s)\r\nreference: %s\r\noutput:    %s\r\n"
+        "threads:   mmcss %s\r\n\r\n"
+        "levels     mic %6.1f   ref %6.1f   out %6.1f dBFS\r\n"
+        "aec        delay %s   erl %s   erle %s   errors %llu   vad %s\r\n"
+        "reference  lead %.0f ms   missing %llu   jumps %llu   gaps mic %llu / ref %llu   "
+        "resyncs mic %llu / ref %llu\r\n"
+        "output     ring %u ms (margin %u ms)   wasapi %u ms   underruns %llu   overruns %llu\r\n"
+        "fill ctl   inserted %llu   dropped %llu   trimmed %llu samples\r\n"
+        "drift      mic %+.0f ppm   ref %+.0f ppm\r\n"
+        "frames     %llu\r\n%s%s",
+        BOMBOEC_VERSION_FULL, s.micName.c_str(), s.micRaw ? "on" : "off", s.micEventDriven ? "event" : "polling",
+        reference.c_str(), s.outputName.c_str(), s.mmcss ? "on" : "off", s.micDb, s.refDb, s.outDb,
+        opt(s.stats.delayMs, "ms").c_str(), opt(s.stats.erlDb, "dB").c_str(), opt(s.stats.erleDb, "dB").c_str(),
+        (unsigned long long)s.stats.errors, opt(s.stats.vadProbability, "").c_str(), s.referenceLeadMs,
+        (unsigned long long)s.refMissing, (unsigned long long)s.refJumps, (unsigned long long)s.micGaps,
+        (unsigned long long)s.refGaps, (unsigned long long)s.micResyncs, (unsigned long long)s.refResyncs,
+        s.outBufferedMs, s.outMarginMs, s.outRenderMs, (unsigned long long)s.outUnderruns,
+        (unsigned long long)s.outOverruns, (unsigned long long)s.outInserted, (unsigned long long)s.outDropped,
+        (unsigned long long)s.outTrimmed, s.micDriftPpm, s.refDriftPpm, (unsigned long long)s.framesProcessed,
+        s.warning.empty() ? "" : ("WARNING: " + s.warning + "\r\n").c_str(),
+        s.error.empty() ? "" : ("ERROR: " + s.error).c_str());
     return buf;
 }
 

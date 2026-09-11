@@ -68,9 +68,10 @@ TEST_CASE("Embedded default config parses and repeats the code defaults") {
     REQUIRE(parseConfig(defaultConfigToml(), cfg, error));
     CHECK(cfg.warnings.empty());
     CHECK(cfg.format.frameSamples == 480);
-    REQUIRE(cfg.chain.size() == 2);
+    REQUIRE(cfg.chain.size() == 3);
     CHECK(cfg.chain[0].id == "webrtc");
-    CHECK(cfg.chain[1].id == "limiter");
+    CHECK(cfg.chain[1].id == "rnnoise");
+    CHECK(cfg.chain[2].id == "limiter");
     // Шаблон не должен менять поведение относительно пустого конфига.
     const EngineSettings defaults;
     CHECK(cfg.engine.micId.empty());

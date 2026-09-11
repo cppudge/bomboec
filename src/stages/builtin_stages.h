@@ -11,6 +11,7 @@ namespace bomboec {
 // сторонние заголовки в этот файл.
 std::unique_ptr<IStage> makeHpfStage();      // id "hpf"
 std::unique_ptr<IStage> makeWebrtcStage();   // id "webrtc": AEC3 (+ hpf/ns/agc из APM)
+std::unique_ptr<IStage> makeRnnoiseStage();  // id "rnnoise": NS на рекуррентной сети (xiph)
 std::unique_ptr<IStage> makeLimiterStage();  // id "limiter"
 
 void registerBuiltinStages(StageRegistry& registry);
