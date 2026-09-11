@@ -57,7 +57,7 @@ config/default.toml           конфигурация конвейера по �
 src/core/                     Frame, RingBuffer, Timeline, PacketAssembler, WAV, IStage, Chain, StageRegistry, config
 src/stages/                   hpf, webrtc (AEC3 + hpf/ns/agc из APM), limiter; позже speex_aec, rnnoise, ...
 src/wasapi/                   devices, CaptureStream (mic/loopback), RenderStream (keepalive, позже cable)
-src/tools/                    apm_smoke, bomboec-rec (рекордер), bomboec-proc (офлайн-процессор), bomboec-run (движок в консоли)
+src/tools/                    apm_smoke, bomboec-rec, bomboec-proc, bomboec-run (движок в консоли), bomboec-play (тестовый сигнал)
 src/engine/                   Engine: realtime-конвейер mic -> reference по таймлайну -> Chain -> render
 src/app/                      bomboec.exe, tray-приложение вокруг Engine
 tests/                        Catch2
@@ -183,7 +183,19 @@ pwsh ./driver/uninstall.ps1
 ```
 
 После установки в bomboec.exe выбирается Output = "Speakers (bomboec Cable)", а в Discord и
-прочих приложениях микрофон = "Microphone (bomboec Cable)".
+прочих приложениях микрофон = "Microphone (bomboec Cable)". Windows при установке делает кабель
+устройством по умолчанию для вывода и ввода: defaults нужно вернуть на реальные устройства.
+Идентификаторы endpoint'ов кабеля меняются при каждой переустановке драйвера.
+
+Проверка кабеля насквозь: `bomboec-play` играет чирп в Speakers кабеля, `bomboec-rec` пишет
+Microphone кабеля и loopback его Speakers, кросс-корреляция даёт задержку и точность.
+
+Известные особенности драйвера (кандидаты на этап 5):
+- render и capture стороны кабеля ведут позиции по независимым таймерам; относительный дрейф
+  порядка десятков ppm съедает 20 ms запаса за несколько минут, после чего кабель переприм-
+  ливается с одним 20 ms пропуском. Лечится общим клоком для обеих сторон.
+- метки времени loopback-копии render-стороны отстают от capture-стороны примерно на 490 ms;
+  на прохождение звука это не влияет, но стоит разобраться в отчёте позиции WaveRT.
 
 ## Принципы realtime-части
 
@@ -208,7 +220,7 @@ pwsh ./driver/uninstall.ps1
 | 2. Рекордер (готово) | WASAPI mic в raw mode, loopback с keepalive, QPC-метки, multi-track WAV | синхронные записи с реального стола плюс metadata.json |
 | 3. Офлайн-процессор | WAV в цепочку, WAV на выходе, ERLE и статистика APM | подобран конфиг AEC3 под конкретный setup |
 | 4a. Realtime (готово) | движок на mic-потоке, reference по таймлайну, вывод в любой render endpoint, tray с диагностикой | движок работает вживую без пропусков reference |
-| 4b. Virtual cable (собран, ждёт установки) | драйвер-cable на базе SimpleAudioSample, сборка через CMake без VSIX, test-signing | Discord работает через виртуальный микрофон |
+| 4b. Virtual cable (готово) | драйвер-cable на базе SimpleAudioSample, сборка через CMake без VSIX, test-signing | чирп проходит через кабель с корреляцией 0.91, без пропусков пакетов |
 | 5. Устойчивость | уведомления устройств, перезапуск, контроллер заполнения выхода, измерение дрейфа, статический сдвиг reference | сутки работы без рассинхрона |
 | 6. Второй бэкенд | рецепты speexdsp или rnnoise, стадии, опционально DLL-плагины | цепочка переключается через конфиг |
 | 7. Драйвер | cable на SysVAD | только если VB-Cable перестанет устраивать |
