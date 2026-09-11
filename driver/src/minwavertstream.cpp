@@ -1114,6 +1114,12 @@ NTSTATUS CMiniportWaveRTStream::SetState
                 // Новый render-поток с нулевой позиции: кабель начинает с чистого листа.
                 g_Cable.Reset();
             }
+            if (m_bCapture)
+            {
+                // Микрофон переоткрыли (Discord сменил устройство): всё, что render
+                // накопил за паузу, не должно остаться в задержке.
+                g_Cable.Unprime();
+            }
             // Start DMA
             LARGE_INTEGER ullPerfCounterTemp;
             ullPerfCounterTemp = KeQueryPerformanceCounter(&m_ullPerformanceCounterFrequency);
@@ -1173,26 +1179,21 @@ VOID CMiniportWaveRTStream::UpdatePosition
 {
     // Convert ticks to 100ns units.
     LONGLONG  hnsCurrentTime = KSCONVERT_PERFORMANCE_TIME(m_ullPerformanceCounterFrequency.QuadPart, ilQPC);
-    
-    // Calculate the time elapsed since the last call to GetPosition() or since the
-    // DMA engine started.  Note that the division by 10000 to convert to milliseconds
-    // may cause us to lose some of the time, so we will carry the remainder forward 
-    // to the next GetPosition() call.
-    //
-    ULONG TimeElapsedInMS = (ULONG)(hnsCurrentTime - m_ullDmaTimeStamp + m_hnsElapsedTimeCarryForward)/10000;
-    
-    // Carry forward the remainder of this division so we don't fall behind with our position too much.
-    //
-    m_hnsElapsedTimeCarryForward = (hnsCurrentTime - m_ullDmaTimeStamp + m_hnsElapsedTimeCarryForward) % 10000;
-    
-    // Calculate how many bytes in the DMA buffer would have been processed in the elapsed
-    // time.  Note that the division by 1000 to convert to milliseconds may cause us to 
-    // lose some bytes, so we will carry the remainder forward to the next GetPosition() call.
-    //
-    // need to divide by 1000 because m_ulDmaMovementRate is average bytes per sec.
 
-    ULONG ByteDisplacement = ((m_ulDmaMovementRate * TimeElapsedInMS) + m_byteDisplacementCarryForward) / 1000 ;
-    m_byteDisplacementCarryForward = ((m_ulDmaMovementRate * TimeElapsedInMS) + m_byteDisplacementCarryForward) % 1000;
+    // Прошедшее с прошлого вызова время в миллисекундах, остаток переносится дальше.
+    // Всё в 64 битах: в образце произведение rate * ms в ULONG переполнялось, если
+    // позиции не обновлялись дольше 22 с (EoS, таймер снят), и дальше кольцо крутило
+    // миллионы итераций под спинлоком.
+    //
+    ULONGLONG hnsElapsed = (ULONGLONG)(hnsCurrentTime - (LONGLONG)m_ullDmaTimeStamp) + m_hnsElapsedTimeCarryForward;
+    ULONGLONG TimeElapsedInMS = hnsElapsed / 10000;
+    m_hnsElapsedTimeCarryForward = hnsElapsed % 10000;
+
+    // Сколько байт буфера прошло за это время; остаток от деления на 1000 тоже переносится.
+    //
+    ULONGLONG bytesScaled = (ULONGLONG)m_ulDmaMovementRate * TimeElapsedInMS + m_byteDisplacementCarryForward;
+    ULONGLONG ByteDisplacement = bytesScaled / 1000;
+    m_byteDisplacementCarryForward = (ULONG)(bytesScaled % 1000);
 
     // Increment presentation position even after last buffer is rendered.
     m_ullPresentationPosition += ByteDisplacement;
@@ -1211,15 +1212,16 @@ VOID CMiniportWaveRTStream::UpdatePosition
             // If driver's current position is less than EoS position, then make sure not to read data beyond EoS.
             if (m_ullWritePosition <= m_ulCurrentWritePosition)
             {
-                ByteDisplacement = min(ByteDisplacement, m_ulCurrentWritePosition - (ULONG)m_ullWritePosition);
+                ByteDisplacement = min(ByteDisplacement, (ULONGLONG)m_ulCurrentWritePosition - m_ullWritePosition);
             }
             // If our current position is ahead of EoS position and we'll wrap around after new position then adjust
             // new position if it crosses EoS.
             else if ((m_ullWritePosition + ByteDisplacement) % m_ulDmaBufferSize < m_ullWritePosition)
             {
-                if ((m_ullWritePosition + ByteDisplacement) % m_ulDmaBufferSize > m_ulCurrentWritePosition)
+                ULONGLONG newPosition = (m_ullWritePosition + ByteDisplacement) % m_ulDmaBufferSize;
+                if (newPosition > m_ulCurrentWritePosition)
                 {
-                    ByteDisplacement = ByteDisplacement - (((ULONG)m_ullWritePosition + ByteDisplacement) % m_ulDmaBufferSize - m_ulCurrentWritePosition);
+                    ByteDisplacement -= newPosition - m_ulCurrentWritePosition;
                 }
             }
         }
@@ -1255,13 +1257,13 @@ VOID CMiniportWaveRTStream::UpdatePosition
 #pragma code_seg()
 VOID CMiniportWaveRTStream::WriteBytes
 (
-    _In_ ULONG ByteDisplacement
+    _In_ ULONGLONG ByteDisplacement
 )
 /*++
 
 Routine Description:
 
-This function writes the audio buffer using a sine wave generator
+Заполняет WaveRT-буфер capture-потока из кабеля.
 
 Arguments:
 
@@ -1269,20 +1271,29 @@ ByteDisplacement - # of bytes to process.
 
 --*/
 {
-    ULONG bufferOffset = m_ullLinearPosition % m_ulDmaBufferSize;
+    ULONG bufferOffset = (ULONG)(m_ullLinearPosition % m_ulDmaBufferSize);
     ULONGLONG streamPos = m_ullLinearPosition;
 
-    // Normally this will loop no more than once for a single wrap, but if
-    // many bytes have been displaced then this may loops many times.
-    while (ByteDisplacement > 0)
+    // Больше одного буфера за вызов бывает только после долгого простоя: всё
+    // старше одного буфера клиент уже не прочитает, пропускаем без копирования.
+    if (ByteDisplacement > m_ulDmaBufferSize)
     {
-        ULONG runWrite = min(ByteDisplacement, m_ulDmaBufferSize - bufferOffset);
-        
+        ULONGLONG skip = ByteDisplacement - m_ulDmaBufferSize;
+        bufferOffset = (ULONG)((bufferOffset + skip) % m_ulDmaBufferSize);
+        streamPos += skip;
+        ByteDisplacement = m_ulDmaBufferSize;
+    }
+
+    ULONG remaining = (ULONG)ByteDisplacement;
+    while (remaining > 0)
+    {
+        ULONG runWrite = min(remaining, m_ulDmaBufferSize - bufferOffset);
+
         g_Cable.Read(m_pDmaBuffer + bufferOffset, runWrite, streamPos);
         streamPos += runWrite;
-           	
+
         bufferOffset = (bufferOffset + runWrite) % m_ulDmaBufferSize;
-        ByteDisplacement -= runWrite;
+        remaining -= runWrite;
     }
 }
 
@@ -1290,13 +1301,13 @@ ByteDisplacement - # of bytes to process.
 #pragma code_seg()
 VOID CMiniportWaveRTStream::ReadBytes
 (
-    _In_ ULONG ByteDisplacement
+    _In_ ULONGLONG ByteDisplacement
 )
 /*++
 
 Routine Description:
 
-This function reads the audio buffer and saves the data in a file.
+Забирает отрендеренные байты из WaveRT-буфера render-потока в кабель.
 
 Arguments:
 
@@ -1304,18 +1315,27 @@ ByteDisplacement - # of bytes to process.
 
 --*/
 {
-    ULONG bufferOffset = m_ullLinearPosition % m_ulDmaBufferSize;
+    ULONG bufferOffset = (ULONG)(m_ullLinearPosition % m_ulDmaBufferSize);
     ULONGLONG streamPos = m_ullLinearPosition;
 
-    // Normally this will loop no more than once for a single wrap, but if
-    // many bytes have been displaced then this may loops many times.
-    while (ByteDisplacement > 0)
+    // Больше одного буфера за вызов бывает только после долгого простоя: то, что
+    // старше одного буфера, клиент уже перезаписал, пропускаем без копирования.
+    if (ByteDisplacement > m_ulDmaBufferSize)
     {
-        ULONG runWrite = min(ByteDisplacement, m_ulDmaBufferSize - bufferOffset);
+        ULONGLONG skip = ByteDisplacement - m_ulDmaBufferSize;
+        bufferOffset = (ULONG)((bufferOffset + skip) % m_ulDmaBufferSize);
+        streamPos += skip;
+        ByteDisplacement = m_ulDmaBufferSize;
+    }
+
+    ULONG remaining = (ULONG)ByteDisplacement;
+    while (remaining > 0)
+    {
+        ULONG runWrite = min(remaining, m_ulDmaBufferSize - bufferOffset);
         g_Cable.Write(m_pDmaBuffer + bufferOffset, runWrite, streamPos);
         streamPos += runWrite;
         bufferOffset = (bufferOffset + runWrite) % m_ulDmaBufferSize;
-        ByteDisplacement -= runWrite;
+        remaining -= runWrite;
     }
 }
 
@@ -1454,12 +1474,16 @@ TimerNotifyRT
         bufferCompleted = TRUE;
     }
 
+    // Позиции (и обмен с кабелем) двигаются на каждом тике 1 ms, как у реального
+    // DMA: тогда после прайма запас в кольце кабеля равен prime минус 1 ms, а не
+    // 1-4 байта, как при сдвиге порциями по notification interval. Событие
+    // клиенту по-прежнему раз в интервал.
+    _this->UpdatePosition(qpc);
+
     if (!bufferCompleted && !_this->m_bEoSReceived)
     {
         goto End;
     }
-
-    _this->UpdatePosition(qpc);
 
     if (!_this->m_bEoSReceived)
     {
@@ -1512,6 +1536,7 @@ TimerNotifyRT
 
 End:
     KeReleaseSpinLock(&_this->m_PositionSpinLock, oldIrql);
+    g_Cable.ReportCounters();
     return;
 }
 //=============================================================================

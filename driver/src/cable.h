@@ -20,9 +20,14 @@ Abstract:
     Чтение начинается только после накопления primeBytes (задержка кабеля);
     всё, что накопилось сверх primeBytes, пока capture не читал, при старте
     чтения отбрасывается: обе стороны ведут позиции от одного QPC, поэтому
-    backlog сам по себе никогда не рассосался бы. При опустошении capture
-    получает тишину и снова ждёт накопления. Переполнение отбрасывает самые
-    старые данные и требует повторного выравнивания.
+    backlog сам по себе никогда не рассосался бы. То же при каждом новом
+    старте capture-потока (Unprime): пауза чтения короче ёмкости кольца иначе
+    целиком оставалась бы в задержке. При опустошении capture получает тишину
+    и снова ждёт накопления. Переполнение отбрасывает самые старые данные и
+    требует повторного выравнивания.
+
+    Обе стороны двигают позиции на каждом тике DPC (1 ms), поэтому после
+    прайма запас в кольце против джиттера DPC равен primeBytes минус 1 ms.
 
 --*/
 
@@ -40,6 +45,10 @@ public:
     // Сброс при старте render-потока с нулевой позиции.
     void Reset();
 
+    // Capture-поток стартует заново: следующий Read снова обрежет накопленное до
+    // prime и выровняет фазу. IRQL <= DISPATCH_LEVEL.
+    void Unprime();
+
     // Producer (render stream). streamPos: линейная позиция первого байта data
     // в render-потоке (для фазы кадра). IRQL <= DISPATCH_LEVEL.
     void Write(_In_reads_bytes_(bytes) const BYTE* data, _In_ ULONG bytes, _In_ ULONGLONG streamPos);
@@ -54,7 +63,8 @@ public:
     // изменении, не чаще раза в секунду. Видно в DebugView (Capture Kernel) или
     // WinDbg после включения фильтра: HKLM\SYSTEM\CurrentControlSet\Control\
     // Session Manager\Debug Print Filter, DWORD IHVAUDIO = 0x8, перезагрузка.
-    // Вызывать без m_lock, IRQL <= DISPATCH_LEVEL.
+    // Зовётся из DPC потоков после освобождения их спинлоков (не из Read/Write:
+    // те идут под m_PositionSpinLock потока). IRQL <= DISPATCH_LEVEL.
     void ReportCounters();
 
 private:

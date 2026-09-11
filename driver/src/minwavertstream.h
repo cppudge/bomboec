@@ -149,12 +149,12 @@ private:
 
     VOID WriteBytes
     (
-        _In_ ULONG ByteDisplacement
+        _In_ ULONGLONG ByteDisplacement
     );
         
     VOID ReadBytes
     (
-        _In_ ULONG ByteDisplacement
+        _In_ ULONGLONG ByteDisplacement
     );
     
     VOID UpdatePosition

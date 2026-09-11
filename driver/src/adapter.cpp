@@ -24,10 +24,10 @@ Abstract:
 #include "minipairs.h"
 #include "cable.h"
 
-// Кабель: 1 с ёмкости при 48 kHz / 2 ch / 16 bit, задержка (prime) 20 ms.
+// Кабель: 1 с ёмкости при 48 kHz / 2 ch / 16 bit.
 #define CABLE_CAPACITY_BYTES    (48000 * 4)
-// Задержка кабеля 10 ms: обе стороны ведут позиции от одного QPC с шагом
-// DPC 1 ms, запас нужен только на задержку DPC.
+// Задержка кабеля 10 ms: обе стороны ведут позиции от одного QPC на каждом
+// тике DPC (1 ms, см. TimerNotifyRT), запас нужен только на джиттер DPC.
 #define CABLE_PRIME_BYTES       (48000 * 4 / 100)
 
 typedef void (*fnPcDriverUnload) (PDRIVER_OBJECT);

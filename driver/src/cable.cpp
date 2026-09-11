@@ -76,6 +76,19 @@ void CCableBuffer::Reset()
 }
 
 #pragma code_seg()
+void CCableBuffer::Unprime()
+{
+    if (m_buffer == NULL)
+    {
+        return;
+    }
+    KIRQL oldIrql;
+    KeAcquireSpinLock(&m_lock, &oldIrql);
+    m_primed = FALSE;
+    KeReleaseSpinLock(&m_lock, oldIrql);
+}
+
+#pragma code_seg()
 void CCableBuffer::Write(_In_reads_bytes_(bytes) const BYTE* data, _In_ ULONG bytes, _In_ ULONGLONG streamPos)
 {
     if (m_buffer == NULL || bytes == 0)
@@ -124,8 +137,13 @@ void CCableBuffer::Write(_In_reads_bytes_(bytes) const BYTE* data, _In_ ULONG by
 
     if (m_count + bytes > m_capacity)
     {
-        // Переполнение: самые старые данные затёрты, хвост потерял фазу.
-        m_overruns++;
+        // Переполнение: самые старые данные затёрты, хвост потерял фазу. Пока
+        // микрофон никто не открыл, кольцо переполняется штатно каждый второй
+        // тик и как диагностика это бесполезно: считаем только при чтении.
+        if (m_primed)
+        {
+            m_overruns++;
+        }
         m_count = m_capacity;
         m_primed = FALSE;
     }
@@ -135,7 +153,6 @@ void CCableBuffer::Write(_In_reads_bytes_(bytes) const BYTE* data, _In_ ULONG by
     }
 
     KeReleaseSpinLock(&m_lock, oldIrql);
-    ReportCounters();
 }
 
 #pragma code_seg()
@@ -206,7 +223,6 @@ void CCableBuffer::Read(_Out_writes_bytes_all_(bytes) BYTE* data, _In_ ULONG byt
     }
 
     KeReleaseSpinLock(&m_lock, oldIrql);
-    ReportCounters();
 }
 
 #pragma code_seg()
