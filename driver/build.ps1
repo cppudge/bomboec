@@ -21,6 +21,18 @@ $src = Join-Path $root "driver"
 cmd /c "`"$vcvars`" >nul && cmake -S `"$src`" -B `"$buildDir`" -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build `"$buildDir`""
 if ($LASTEXITCODE -ne 0) { throw "driver build failed" }
 
+# DriverVer в пакете: дата и монотонная версия сборки. С неизменной DriverVer Windows
+# считает пакет уже импортированным ("already imported as oemNN.inf") и при переустановке
+# оставляет старый .sys в DriverStore, ничего не сообщая.
+$inf = Join-Path $pkg "bomboec_cable.inf"
+$now = (Get-Date).ToUniversalTime()  # inf2cat сверяет дату с UTC: локальная дата бывает "из будущего"
+$inv = [Globalization.CultureInfo]::InvariantCulture
+$version = "1.0.{0}.{1}" -f ($now - [datetime]::new(2026, 1, 1)).Days, ($now.Hour * 60 + $now.Minute)
+$driverVer = "DriverVer={0},{1}" -f $now.ToString("MM/dd/yyyy", $inv), $version
+$text = [IO.File]::ReadAllText($inf) -replace '(?m)^DriverVer\s*=.*$', $driverVer
+[IO.File]::WriteAllText($inf, $text, [Text.UTF8Encoding]::new($false))
+Write-Host $driverVer
+
 # Каталог подписи пакета.
 $inf2cat = Join-Path $WdkBin "..\x86\inf2cat.exe"
 if (-not (Test-Path $inf2cat)) { $inf2cat = Join-Path $WdkBin "inf2cat.exe" }
