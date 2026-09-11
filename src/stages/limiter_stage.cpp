@@ -14,12 +14,12 @@ class LimiterStage final : public IStage {
 public:
     StageInfo info() const override { return {"limiter", fmt_.sampleRate, fmt_.frameSamples, capBit(Cap::Limiter), 0}; }
 
-    bool init(const PipelineFormat& fmt, const toml::table& cfg, std::string& error) override {
+    bool init(const PipelineFormat& fmt, StageParams& cfg, std::string& error) override {
         fmt_ = fmt;
-        const double ceilingDb = cfg["ceiling_db"].value_or(-1.0);
-        const double releaseMs = cfg["release_ms"].value_or(50.0);
-        if (ceilingDb > 0.0 || releaseMs <= 0.0) {
-            error = "limiter: ceiling_db must be <= 0 and release_ms > 0";
+        const double ceilingDb = cfg.number("ceiling_db", -1.0, -60.0, 0.0);
+        const double releaseMs = cfg.number("release_ms", 50.0, 0.1, 10000.0);
+        if (!cfg.ok()) {
+            error = "limiter: " + cfg.error();
             return false;
         }
         ceiling_ = float(std::pow(10.0, ceilingDb / 20.0));

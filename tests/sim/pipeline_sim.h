@@ -40,7 +40,7 @@ public:
     };
 
     StageInfo info() const override { return {"probe", fmt_.sampleRate, fmt_.frameSamples, capBit(Cap::Aec), 0}; }
-    bool init(const PipelineFormat& fmt, const toml::table&, std::string&) override {
+    bool init(const PipelineFormat& fmt, StageParams&, std::string&) override {
         fmt_ = fmt;
         records.reserve(1 << 16);
         return true;
@@ -62,9 +62,17 @@ struct PipelineSim {
     PipelineFormat fmt;
     EngineSettings settings;
     SimClock mic, ref, out;
-    double deliveryMs = 1.0;  // пакет доступен через столько после своего последнего сэмпла
+    // Пакет доступен через столько после своего последнего сэмпла. Loopback отдаёт данные
+    // раньше их метки: audio engine смешивает на период вперёд, а метка пакета - время, когда
+    // сэмплы прозвучат (на машине разработки refMissing = 0 даже при lead 0). Микрофон
+    // отдаёт пакет после его захвата плюс доставка (USB, период engine).
+    double micDeliveryMs = 2.0;
+    double refDeliveryMs = -8.0;
     // Пакеты микрофона, которые должны были прийти в [stallFrom, stallTo), приходят разом в stallTo.
     double stallFrom = -1.0, stallTo = -1.0;
+    // Пакеты reference в [refLostFrom, refLostTo) не приходят вовсе (loopback остановился:
+    // устройство пропало, потом вернулось).
+    double refLostFrom = -1.0, refLostTo = -1.0;
     // Правка метки/флагов пакета микрофона по его номеру (битые метки и т.п.).
     std::function<void(uint64_t packet, int64_t& ticks, PacketFlags& flags)> tweakMic;
     std::function<float(uint64_t index, uint32_t channel)> micSignal = [](uint64_t i, uint32_t) {
@@ -97,8 +105,8 @@ struct PipelineSim {
         const double end = now + seconds;
         const uint32_t packet = fmt.frameSamples;
         for (;;) {
-            const double tRef = ref.timeOf(double(refPos_ + packet)) + deliveryMs / 1000.0;
-            const double tMic = micDelivery(mic.timeOf(double(micPos_ + packet)) + deliveryMs / 1000.0);
+            const double tRef = ref.timeOf(double(refPos_ + packet)) + refDeliveryMs / 1000.0;
+            const double tMic = micDelivery(mic.timeOf(double(micPos_ + packet)) + micDeliveryMs / 1000.0);
             const double tOut = out.timeOf(double(outPos_ + packet));
             const double t = std::min({tRef, tMic, tOut});
             if (t > end) break;
@@ -120,6 +128,11 @@ private:
 
     void pushRef() {
         const uint32_t n = fmt.frameSamples, ch = fmt.referenceChannels;
+        const double t = ref.timeOf(double(refPos_));
+        if (t >= refLostFrom && t < refLostTo) {
+            refPos_ += n;  // пакет потерян: loopback его не отдал
+            return;
+        }
         buf_.resize(size_t(n) * ch);
         for (uint32_t i = 0; i < n; ++i) {
             for (uint32_t c = 0; c < ch; ++c) buf_[size_t(i) * ch + c] = refSignal(refPos_ + i, c);

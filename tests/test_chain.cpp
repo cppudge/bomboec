@@ -16,10 +16,10 @@ public:
 
     StageInfo info() const override { return {id_, fmt_.sampleRate, fmt_.frameSamples, caps_, latency_}; }
 
-    bool init(const PipelineFormat& fmt, const toml::table& cfg, std::string& error) override {
+    bool init(const PipelineFormat& fmt, StageParams& cfg, std::string& error) override {
         fmt_ = fmt;
-        gain_ = float(cfg["gain"].value_or(1.0));
-        if (cfg["fail"].value_or(false)) {
+        gain_ = float(cfg.number("gain", 1.0, -100.0, 100.0));
+        if (cfg.boolean("fail", false)) {
             error = "asked to fail";
             return false;
         }

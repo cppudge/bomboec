@@ -9,6 +9,7 @@ add_executable(bomboec_tests
     test_config.cpp
     test_chain.cpp
     test_stages.cpp
+    test_stage_params.cpp
     test_fill_controller.cpp
     test_wasapi_streams.cpp
     test_utf8.cpp

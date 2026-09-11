@@ -2,8 +2,7 @@
 
 #include "core/audio_format.h"
 #include "core/frame.h"
-
-#include <toml++/toml.hpp>
+#include "core/stage_params.h"
 
 #include <cstdint>
 #include <optional>
@@ -50,8 +49,10 @@ public:
     virtual StageInfo info() const = 0;
 
     // Инициализация под формат конвейера. При ошибке возвращает false и
-    // текст в error. Аллокации допустимы только здесь и в reset().
-    virtual bool init(const PipelineFormat& fmt, const toml::table& cfg, std::string& error) = 0;
+    // текст в error. Аллокации допустимы только здесь и в reset(). Все ключи
+    // конфига читаются через cfg: неверный тип или диапазон - ошибка (cfg.ok()),
+    // непрочитанные ключи Chain считает опечатками.
+    virtual bool init(const PipelineFormat& fmt, StageParams& cfg, std::string& error) = 0;
 
     // mic обрабатывается in-place. reference уже выровнен движком относительно
     // mic; для стадий без Cap::Aec может быть nullptr.

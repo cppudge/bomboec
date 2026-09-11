@@ -43,7 +43,8 @@ TEST_CASE("HPF stage attenuates 20 Hz and passes 1 kHz") {
     toml::table cfg;
     cfg.insert("cutoff_hz", 80.0);
     std::string error;
-    REQUIRE(hpf->init(fmt, cfg, error));
+    StageParams params(cfg);
+    REQUIRE(hpf->init(fmt, params, error));
     CHECK(hpf->info().caps == capBit(Cap::Hpf));
 
     const double ref = 0.5 / std::numbers::sqrt2;
@@ -55,7 +56,8 @@ TEST_CASE("HPF stage attenuates 20 Hz and passes 1 kHz") {
 
     toml::table bad;
     bad.insert("cutoff_hz", 30000.0);
-    CHECK_FALSE(hpf->init(fmt, bad, error));
+    StageParams badParams(bad);
+    CHECK_FALSE(hpf->init(fmt, badParams, error));
 }
 
 TEST_CASE("Limiter stage keeps peaks under the ceiling") {
@@ -64,7 +66,8 @@ TEST_CASE("Limiter stage keeps peaks under the ceiling") {
     toml::table cfg;
     cfg.insert("ceiling_db", -6.0);
     std::string error;
-    REQUIRE(lim->init(fmt, cfg, error));
+    StageParams params(cfg);
+    REQUIRE(lim->init(fmt, params, error));
 
     Frame mic(1, fmt.frameSamples);
     for (uint32_t i = 0; i < fmt.frameSamples; ++i) {
@@ -93,7 +96,8 @@ TEST_CASE("WebRTC stage cancels a delayed synthetic echo") {
     cfg.insert("aec", true);
     cfg.insert("hpf", true);
     std::string error;
-    REQUIRE(stage->init(fmt, cfg, error));
+    StageParams params(cfg);
+    REQUIRE(stage->init(fmt, params, error));
     CHECK(stage->info().caps == (capBit(Cap::Aec) | capBit(Cap::Hpf)));
 
     constexpr int kEchoDelay = 2400;  // 50 ms
@@ -132,13 +136,15 @@ TEST_CASE("WebRTC stage without AEC still needs a feature, works without referen
     toml::table none;
     none.insert("aec", false);
     std::string error;
-    CHECK_FALSE(stage->init(fmt, none, error));
+    StageParams noneParams(none);
+    CHECK_FALSE(stage->init(fmt, noneParams, error));
 
     toml::table nsOnly;
     nsOnly.insert("aec", false);
     nsOnly.insert("ns", true);
     nsOnly.insert("ns_level", "high");
-    REQUIRE(stage->init(fmt, nsOnly, error));
+    StageParams nsParams(nsOnly);
+    REQUIRE(stage->init(fmt, nsParams, error));
     CHECK(stage->info().caps == capBit(Cap::Ns));
     Frame mic(1, fmt.frameSamples);
     stage->process(mic, nullptr);  // не должно падать без reference

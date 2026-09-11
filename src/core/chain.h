@@ -16,8 +16,10 @@ class Chain {
 public:
     void add(std::unique_ptr<IStage> stage, toml::table params = {});
 
-    // Инициализирует все стадии. При ошибке false и текст в error.
+    // Инициализирует все стадии. При ошибке false и текст в error. Ключи стадий,
+    // которые ни одна из них не прочитала (опечатки), попадают в warnings().
     bool init(const PipelineFormat& fmt, std::string& error);
+    const std::vector<std::string>& warnings() const { return warnings_; }
 
     void process(Frame& mic, const Frame* reference);
     void reset();
@@ -40,6 +42,7 @@ private:
     std::vector<Entry> entries_;
     uint32_t caps_ = 0;
     uint32_t latencyFrames_ = 0;
+    std::vector<std::string> warnings_;
 };
 
 // Собирает цепочку по конфигу через реестр (без init).

@@ -9,6 +9,8 @@ add_library(bomboec_core STATIC
     denormals.h
     stage.h
     stage.cpp
+    stage_params.h
+    stage_params.cpp
     registry.h
     config.h
     config.cpp

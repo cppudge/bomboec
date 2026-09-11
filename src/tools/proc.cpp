@@ -6,7 +6,8 @@
 // Печатает статистику раз в секунду и итоговые метрики:
 //   - подавление на кадрах, где reference активен (эхо + возможная речь);
 //   - подавление на кадрах без reference (ожидается ~0 dB: мера искажения речи);
-//   - время сходимости: первая секунда с подавлением >= 10 dB при активном reference.
+//   - время сходимости: первая секунда с подавлением >= 10 dB при активном reference,
+//     не раньше 2 с (в начальном состоянии AEC3 давит всё подряд, это не сходимость).
 // --ref-offset-ms > 0 задерживает reference относительно mic (проверка статического сдвига).
 
 #include "core/chain.h"
@@ -116,6 +117,7 @@ int run(int argc, char** argv) {
         std::fprintf(stderr, "chain: %s\n", error.c_str());
         return 4;
     }
+    for (const std::string& w : chain->warnings()) std::fprintf(stderr, "%s\n", w.c_str());
 
     WavWriter writer;
     if (!writer.open(pathFromUtf8(args["out"].as<std::string>()), fmt.micChannels, fmt.sampleRate, error)) {
@@ -192,8 +194,10 @@ int run(int argc, char** argv) {
         ++secFrames;
         // Сходимость: полное подавление (линейный фильтр + подавитель остатка)
         // за последнюю секунду >= 10 dB при активном reference. ERLE из APM
-        // отражает только линейную часть и здесь не показателен.
-        if (!convergedAt && refActive && secFrames * fmt.frameSamples >= fmt.sampleRate &&
+        // отражает только линейную часть и здесь не показателен. Первые 2 с не в
+        // счёт: в начальном состоянии AEC3 давит всё подряд, и порог достигался бы
+        // даже там, где итоговое подавление 1 dB.
+        if (!convergedAt && refActive && t >= 2.0 && secFrames * fmt.frameSamples >= fmt.sampleRate &&
             10.0 * std::log10(secIn / std::max(secOut, 1e-18)) >= 10.0) {
             convergedAt = t;
         }

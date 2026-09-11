@@ -9,13 +9,19 @@ void Chain::add(std::unique_ptr<IStage> stage, toml::table params) {
 bool Chain::init(const PipelineFormat& fmt, std::string& error) {
     caps_ = 0;
     latencyFrames_ = 0;
+    warnings_.clear();
     for (size_t i = 0; i < entries_.size(); ++i) {
         IStage& s = *entries_[i].stage;
-        if (!s.init(fmt, entries_[i].params, error)) {
+        StageParams params(entries_[i].params);
+        if (!s.init(fmt, params, error)) {
             error = "stage[" + std::to_string(i) + "] init failed: " + error;
             return false;
         }
         const StageInfo info = s.info();
+        for (const std::string& key : params.unknownKeys()) {
+            warnings_.push_back("config: chain[" + std::to_string(i) + "] (" + info.id + "): unknown key '" + key +
+                                "' ignored");
+        }
         if (info.sampleRate != fmt.sampleRate || info.frameSamples != fmt.frameSamples) {
             error = "stage '" + info.id + "' format mismatch: wants " + std::to_string(info.sampleRate) + " Hz / " +
                     std::to_string(info.frameSamples) + " samples, pipeline is " + std::to_string(fmt.sampleRate) +

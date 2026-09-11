@@ -14,11 +14,11 @@ class HpfStage final : public IStage {
 public:
     StageInfo info() const override { return {"hpf", fmt_.sampleRate, fmt_.frameSamples, capBit(Cap::Hpf), 0}; }
 
-    bool init(const PipelineFormat& fmt, const toml::table& cfg, std::string& error) override {
+    bool init(const PipelineFormat& fmt, StageParams& cfg, std::string& error) override {
         fmt_ = fmt;
-        const double cutoff = cfg["cutoff_hz"].value_or(80.0);
-        if (cutoff <= 0.0 || cutoff >= fmt.sampleRate / 2.0) {
-            error = "hpf: cutoff_hz must be in (0, sample_rate/2)";
+        const double cutoff = cfg.number("cutoff_hz", 80.0, 1.0, fmt.sampleRate / 2.0 - 1.0);
+        if (!cfg.ok()) {
+            error = "hpf: " + cfg.error();
             return false;
         }
         const double w0 = 2.0 * std::numbers::pi * cutoff / fmt.sampleRate;
