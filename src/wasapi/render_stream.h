@@ -44,10 +44,16 @@ public:
     uint32_t bufferFrames() const { return bufferFrames_; }
     uint32_t periodFrames() const { return periodFrames_; }  // период engine
     uint32_t targetFrames() const { return targetFrames_; }  // целевое заполнение
+    bool mmcssApplied() const { return mmcss_.load(); }
+    // Фатальная ошибка потока; пусто, если всё хорошо. Поток при ошибке
+    // завершается сам, stop()/close() его собирают.
     std::string lastError() const;
 
 private:
     void threadMain();
+    // Дозаполняет буфер до цели; false при фатальной ошибке устройства.
+    bool fillOnce();
+    void fail(std::string text);
 
     Options options_;
     FillHandler handler_;
@@ -56,11 +62,13 @@ private:
     Handle event_;
     Handle stopEvent_;
     std::thread thread_;
-    std::atomic<bool> running_{false};
+    std::atomic<bool> running_{false};  // сброс просит поток остановиться
+    std::atomic<bool> mmcss_{false};
     uint32_t bufferFrames_ = 0;
     uint32_t periodFrames_ = 0;
     uint32_t targetFrames_ = 0;
-    mutable std::atomic<bool> hasError_{false};
+    // threadError_ пишет только поток и до hasError_ = true; после этого строка не меняется.
+    std::atomic<bool> hasError_{false};
     std::string threadError_;
 };
 

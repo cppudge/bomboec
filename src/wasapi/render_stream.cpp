@@ -52,7 +52,11 @@ bool RenderStream::open(IMMDevice* device, const Options& options, FillHandler h
         error = "SetEventHandle (render): " + hresultToString(hr);
         return false;
     }
-    client_->GetBufferSize(&bufferFrames_);
+    hr = client_->GetBufferSize(&bufferFrames_);
+    if (FAILED(hr)) {
+        error = "GetBufferSize (render): " + hresultToString(hr);
+        return false;
+    }
     REFERENCE_TIME defaultPeriod = 100'000, minPeriod = 0;
     client_->GetDevicePeriod(&defaultPeriod, &minPeriod);
     periodFrames_ = std::max<uint32_t>(1, uint32_t(std::lround(double(defaultPeriod) * options.sampleRate / 1e7)));
@@ -78,28 +82,41 @@ bool RenderStream::start(std::string& error) {
         error = "render stream not opened";
         return false;
     }
-    if (running_.load()) return true;
+    if (thread_.joinable()) {
+        if (!hasError_.load()) return true;  // уже работает
+        stop();                              // поток завершился с ошибкой: собрать и попробовать снова
+    }
     // Предзаполняем тишиной до целевого уровня, чтобы старт был без щелчка
-    // и без лишней задержки.
-    BYTE* data = nullptr;
-    if (SUCCEEDED(render_->GetBuffer(targetFrames_, &data))) {
-        render_->ReleaseBuffer(targetFrames_, AUDCLNT_BUFFERFLAGS_SILENT);
+    // и без лишней задержки. После stop() в буфере может остаться недоигранное.
+    UINT32 padding = 0;
+    HRESULT hr = client_->GetCurrentPadding(&padding);
+    if (SUCCEEDED(hr) && padding < targetFrames_) {
+        BYTE* data = nullptr;
+        const UINT32 frames = targetFrames_ - padding;
+        hr = render_->GetBuffer(frames, &data);
+        if (SUCCEEDED(hr)) hr = render_->ReleaseBuffer(frames, AUDCLNT_BUFFERFLAGS_SILENT);
+    }
+    if (FAILED(hr)) {
+        error = "prefill (render): " + hresultToString(hr);
+        return false;
     }
     ResetEvent(stopEvent_.get());
-    const HRESULT hr = client_->Start();
+    hr = client_->Start();
     if (FAILED(hr)) {
         error = "IAudioClient::Start (render): " + hresultToString(hr);
         return false;
     }
+    threadError_.clear();
+    hasError_.store(false);
     running_.store(true);
     thread_ = std::thread([this] { threadMain(); });
     return true;
 }
 
 void RenderStream::stop() {
-    if (!running_.load()) return;
+    // join без условий: поток мог завершиться сам после ошибки устройства.
     running_.store(false);
-    SetEvent(stopEvent_.get());
+    if (stopEvent_) SetEvent(stopEvent_.get());
     if (thread_.joinable()) thread_.join();
     if (client_) client_->Stop();
 }
@@ -114,42 +131,59 @@ void RenderStream::close() {
 
 std::string RenderStream::lastError() const { return hasError_.load() ? threadError_ : std::string(); }
 
+void RenderStream::fail(std::string text) {
+    threadError_ = std::move(text);
+    hasError_.store(true);
+}
+
+bool RenderStream::fillOnce() {
+    UINT32 padding = 0;
+    HRESULT hr = client_->GetCurrentPadding(&padding);
+    if (FAILED(hr)) {
+        fail("GetCurrentPadding: " + hresultToString(hr));
+        return false;
+    }
+    // Дозаполняем только до цели: всё, что лежит в буфере сверх периода,
+    // это задержка. Полный буфер нужен лишь как ёмкость на случай
+    // позднего пробуждения.
+    const UINT32 frames = padding < targetFrames_ ? targetFrames_ - padding : 0;
+    if (frames == 0) return true;
+    BYTE* data = nullptr;
+    hr = render_->GetBuffer(frames, &data);
+    if (FAILED(hr)) {
+        fail("IAudioRenderClient::GetBuffer: " + hresultToString(hr));
+        return false;
+    }
+    if (handler_) {
+        handler_(reinterpret_cast<float*>(data), frames);
+        hr = render_->ReleaseBuffer(frames, 0);
+    } else {
+        hr = render_->ReleaseBuffer(frames, AUDCLNT_BUFFERFLAGS_SILENT);
+    }
+    if (FAILED(hr)) {
+        fail("IAudioRenderClient::ReleaseBuffer: " + hresultToString(hr));
+        return false;
+    }
+    return true;
+}
+
 void RenderStream::threadMain() {
     const ComInit com;
     DWORD taskIndex = 0;
     HANDLE mmcss = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
+    mmcss_.store(mmcss != nullptr);
     HANDLE waits[2] = {stopEvent_.get(), event_.get()};
 
     while (running_.load()) {
         const DWORD w = WaitForMultipleObjects(2, waits, FALSE, 2000);
         if (w == WAIT_OBJECT_0) break;
-        if (w != WAIT_OBJECT_0 + 1) continue;
-
-        UINT32 padding = 0;
-        HRESULT hr = client_->GetCurrentPadding(&padding);
-        if (FAILED(hr)) {
-            threadError_ = "GetCurrentPadding: " + hresultToString(hr);
-            hasError_.store(true);
+        if (w == WAIT_TIMEOUT) continue;
+        if (w != WAIT_OBJECT_0 + 1) {
+            // WAIT_FAILED: без выхода цикл крутился бы без ожидания на приоритете MMCSS.
+            fail("WaitForMultipleObjects (render): " + hresultToString(HRESULT_FROM_WIN32(GetLastError())));
             break;
         }
-        // Дозаполняем только до цели: всё, что лежит в буфере сверх периода,
-        // это задержка. Полный буфер нужен лишь как ёмкость на случай
-        // позднего пробуждения.
-        const UINT32 frames = padding < targetFrames_ ? targetFrames_ - padding : 0;
-        if (frames == 0) continue;
-        BYTE* data = nullptr;
-        hr = render_->GetBuffer(frames, &data);
-        if (FAILED(hr)) {
-            threadError_ = "IAudioRenderClient::GetBuffer: " + hresultToString(hr);
-            hasError_.store(true);
-            break;
-        }
-        if (handler_) {
-            handler_(reinterpret_cast<float*>(data), frames);
-            render_->ReleaseBuffer(frames, 0);
-        } else {
-            render_->ReleaseBuffer(frames, AUDCLNT_BUFFERFLAGS_SILENT);
-        }
+        if (!fillOnce()) break;
     }
 
     if (mmcss) AvRevertMmThreadCharacteristics(mmcss);

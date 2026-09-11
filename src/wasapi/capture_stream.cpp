@@ -148,22 +148,28 @@ bool CaptureStream::start(std::string& error) {
         error = "capture stream not opened";
         return false;
     }
-    if (running_.load()) return true;
+    if (thread_.joinable()) {
+        if (!hasError_.load()) return true;  // уже работает
+        stop();                              // поток завершился с ошибкой: собрать и попробовать снова
+    }
     ResetEvent(stopEvent_.get());
     const HRESULT hr = client_->Start();
     if (FAILED(hr)) {
         error = "IAudioClient::Start: " + hresultToString(hr);
         return false;
     }
+    threadError_.clear();
+    hasError_.store(false);
     running_.store(true);
     thread_ = std::thread([this] { threadMain(); });
     return true;
 }
 
 void CaptureStream::stop() {
-    if (!running_.load()) return;
+    // join без условий: поток мог завершиться сам после ошибки устройства, и
+    // несобранный std::thread уронил бы следующий start() или деструктор.
     running_.store(false);
-    SetEvent(stopEvent_.get());
+    if (stopEvent_) SetEvent(stopEvent_.get());
     if (thread_.joinable()) thread_.join();
     if (client_) client_->Stop();
 }
@@ -219,10 +225,44 @@ void CaptureStream::deliver(const BYTE* data, uint32_t frames, DWORD flags, uint
     handler_(p);
 }
 
+void CaptureStream::fail(std::string text) {
+    threadError_ = std::move(text);
+    hasError_.store(true);
+}
+
+bool CaptureStream::drainPackets() {
+    for (;;) {
+        UINT32 next = 0;
+        HRESULT hr = capture_->GetNextPacketSize(&next);
+        if (FAILED(hr)) {
+            fail("GetNextPacketSize: " + hresultToString(hr));
+            return false;
+        }
+        if (next == 0) return true;
+        BYTE* data = nullptr;
+        UINT32 frames = 0;
+        DWORD flags = 0;
+        UINT64 devPos = 0, qpc = 0;
+        hr = capture_->GetBuffer(&data, &frames, &flags, &devPos, &qpc);
+        if (hr == AUDCLNT_S_BUFFER_EMPTY) return true;
+        if (FAILED(hr)) {
+            fail("GetBuffer: " + hresultToString(hr));
+            return false;
+        }
+        if (frames > 0) deliver(data, frames, flags, qpc);
+        hr = capture_->ReleaseBuffer(frames);
+        if (FAILED(hr)) {
+            fail("ReleaseBuffer: " + hresultToString(hr));
+            return false;
+        }
+    }
+}
+
 void CaptureStream::threadMain() {
     const ComInit com;
     DWORD taskIndex = 0;
     HANDLE mmcss = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
+    mmcss_.store(mmcss != nullptr);
 
     HANDLE waits[2] = {stopEvent_.get(), event_.get()};
     const DWORD waitCount = eventDriven_ ? 2 : 1;
@@ -233,37 +273,12 @@ void CaptureStream::threadMain() {
         const DWORD w = WaitForMultipleObjects(waitCount, waits, FALSE, timeout);
         if (w == WAIT_OBJECT_0) break;  // stop
         if (w == WAIT_FAILED) {
-            threadError_ = "WaitForMultipleObjects failed";
-            hasError_.store(true);
+            fail("WaitForMultipleObjects: " + hresultToString(HRESULT_FROM_WIN32(GetLastError())));
             break;
         }
         // WAIT_TIMEOUT в event-режиме: устройство молчит (возможно, loopback без
         // render-потоков); просто ждём дальше. Пропуски заполнит PacketAssembler.
-        for (;;) {
-            UINT32 next = 0;
-            HRESULT hr = capture_->GetNextPacketSize(&next);
-            if (FAILED(hr)) {
-                threadError_ = "GetNextPacketSize: " + hresultToString(hr);
-                hasError_.store(true);
-                running_.store(false);
-                break;
-            }
-            if (next == 0) break;
-            BYTE* data = nullptr;
-            UINT32 frames = 0;
-            DWORD flags = 0;
-            UINT64 devPos = 0, qpc = 0;
-            hr = capture_->GetBuffer(&data, &frames, &flags, &devPos, &qpc);
-            if (hr == AUDCLNT_S_BUFFER_EMPTY) break;
-            if (FAILED(hr)) {
-                threadError_ = "GetBuffer: " + hresultToString(hr);
-                hasError_.store(true);
-                running_.store(false);
-                break;
-            }
-            if (frames > 0) deliver(data, frames, flags, qpc);
-            capture_->ReleaseBuffer(frames);
-        }
+        if (!drainPackets()) break;
     }
 
     if (mmcss) AvRevertMmThreadCharacteristics(mmcss);

@@ -29,6 +29,9 @@ struct CapturePacket {
 //
 // Колбэк вызывается из внутреннего потока (MMCSS "Pro Audio"); он не должен
 // блокироваться и аллоцировать.
+//
+// Если устройство пропало (AUDCLNT_E_DEVICE_INVALIDATED и т.п.), поток
+// завершается сам и оставляет текст в lastError(); stop()/close() его собирают.
 class CaptureStream {
 public:
     struct Options {
@@ -56,11 +59,16 @@ public:
     bool rawApplied() const { return rawApplied_; }
     bool eventDriven() const { return eventDriven_; }
     uint32_t bufferFrames() const { return bufferFrames_; }
+    // Поток получил приоритет MMCSS "Pro Audio" (известно после старта потока).
+    bool mmcssApplied() const { return mmcss_.load(); }
     // Фатальная ошибка потока (устройство пропало и т.п.); пусто, если всё хорошо.
     std::string lastError() const;
 
 private:
     void threadMain();
+    // Забирает все готовые пакеты; false при фатальной ошибке устройства.
+    bool drainPackets();
+    void fail(std::string text);
     void deliver(const BYTE* data, uint32_t frames, DWORD flags, uint64_t qpc);
 
     Options options_;
@@ -70,13 +78,15 @@ private:
     Handle event_;
     Handle stopEvent_;
     std::thread thread_;
-    std::atomic<bool> running_{false};
+    std::atomic<bool> running_{false};  // сброс просит поток остановиться
+    std::atomic<bool> mmcss_{false};
     uint32_t deviceChannels_ = 0;
     uint32_t bufferFrames_ = 0;
     bool rawApplied_ = false;
     bool eventDriven_ = true;
     std::vector<float> scratch_;
-    mutable std::atomic<bool> hasError_{false};
+    // threadError_ пишет только поток и до hasError_ = true; после этого строка не меняется.
+    std::atomic<bool> hasError_{false};
     std::string threadError_;
 };
 
