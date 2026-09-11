@@ -63,7 +63,8 @@ bool parseConfig(std::string_view text, AppConfig& out, std::string& error) {
     if (const toml::table* eng = root["engine"].as_table()) {
         cfg.engine.micRaw = (*eng)["mic_raw"].value_or(true);
         cfg.engine.referenceLeadMs = uint32_t((*eng)["reference_lead_ms"].value_or(int64_t(20)));
-        cfg.engine.outputBufferMs = uint32_t((*eng)["output_buffer_ms"].value_or(int64_t(30)));
+        cfg.engine.outputBufferMs = uint32_t((*eng)["output_buffer_ms"].value_or(int64_t(10)));
+        cfg.engine.outputRenderMs = uint32_t((*eng)["output_render_ms"].value_or(int64_t(20)));
         cfg.engine.outputChannels = uint32_t((*eng)["output_channels"].value_or(int64_t(2)));
         cfg.engine.recordDir = (*eng)["record_dir"].value_or(std::string());
     }
@@ -96,6 +97,7 @@ bool saveConfig(const std::filesystem::path& path, const AppConfig& cfg, std::st
     eng->insert_or_assign("mic_raw", cfg.engine.micRaw);
     eng->insert_or_assign("reference_lead_ms", int64_t(cfg.engine.referenceLeadMs));
     eng->insert_or_assign("output_buffer_ms", int64_t(cfg.engine.outputBufferMs));
+    eng->insert_or_assign("output_render_ms", int64_t(cfg.engine.outputRenderMs));
     eng->insert_or_assign("output_channels", int64_t(cfg.engine.outputChannels));
     eng->insert_or_assign("record_dir", cfg.engine.recordDir);
 

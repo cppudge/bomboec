@@ -13,6 +13,7 @@ namespace bomboec {
 namespace {
 
 constexpr double kTps = 1e7;
+constexpr int kMaxStretch = 4;  // максимум сэмплов коррекции на кадр (0.8 % на 480)
 
 float rmsDb(const float* x, uint32_t n) {
     double e = 0.0;
@@ -66,12 +67,13 @@ bool Engine::start(const AppConfig& cfg, std::string& error) {
     refAsm_.configure(rate, kTps, &refRing_);
     micBuf_.assign(size_t(fmt_.frameSamples) * fmt_.micChannels, 0.0f);
     refBuf_.assign(size_t(fmt_.frameSamples) * fmt_.referenceChannels, 0.0f);
-    outBuf_.assign(size_t(fmt_.frameSamples) * settings_.outputChannels, 0.0f);
+    outBuf_.assign(size_t(fmt_.frameSamples + kMaxStretch) * settings_.outputChannels, 0.0f);
+    stretchBuf_.assign(size_t(fmt_.frameSamples + kMaxStretch), 0.0f);
     micFrame_.resize(fmt_.micChannels, fmt_.frameSamples);
     refFrame_.resize(fmt_.referenceChannels, fmt_.frameSamples);
     leadTicks_ = int64_t(settings_.referenceLeadMs) * 10'000;
     refKeepFrames_ = rate / 2;  // держим 500 ms истории reference позади точки чтения
-    frames_ = refMissing_ = outUnderruns_ = outOverruns_ = 0;
+    frames_ = refMissing_ = outUnderruns_ = outOverruns_ = outInserted_ = outDropped_ = 0;
 
     recording_ = false;
     if (!settings_.recordDir.empty()) {
@@ -105,17 +107,25 @@ bool Engine::start(const AppConfig& cfg, std::string& error) {
     ws::RenderStream::Options outOpt;
     outOpt.sampleRate = rate;
     outOpt.channels = settings_.outputChannels;
-    outOpt.bufferMs = std::max<uint32_t>(40, settings_.outputBufferMs * 2);
+    // Ёмкость буфера WASAPI не задержка: заполняется он только до targetMs.
+    outOpt.bufferMs = std::max<uint32_t>(40, settings_.outputRenderMs + 20);
+    outOpt.targetMs = settings_.outputRenderMs;
     if (!output_.open(outDev.Get(), outOpt, [this](float* buf, uint32_t n) { fillOutput(buf, n); }, error)) {
         return false;
     }
     {
         std::lock_guard<std::mutex> g(infoMutex_);
         info_.micRaw = micStream_.rawApplied();
+        info_.outRenderMs = output_.targetFrames() * 1000 / rate;
     }
 
-    // Предзаполнение выхода тишиной: запас против джиттера mic-потока.
-    outRing_.writeSilence(rate * settings_.outputBufferMs / 1000);
+    // Запас в выходном кольце против джиттера mic-потока: FillController держит
+    // минимальный остаток после чтения около outputBufferMs. Предзаполняем
+    // тишиной ровно на запас: render-поток начинает читать кольцо только после
+    // первого кадра микрофона (см. fillOutput), так что стартуем сразу в цели.
+    const uint32_t marginFrames = rate * settings_.outputBufferMs / 1000;
+    fill_.configure(marginFrames, /*windowReads=*/rate / fmt_.frameSamples, 1.0 / 1200.0, kMaxStretch);
+    outRing_.writeSilence(marginFrames);
 
     running_.store(true);
     if (!keepalive_.start(error) || !refStream_.start(error) || !micStream_.start(error) || !output_.start(error)) {
@@ -192,13 +202,25 @@ void Engine::processAvailable() {
             recOut_.write(micBuf_.data(), frame);
         }
 
-        // Моно -> каналы выхода дублированием.
+        // Регулятор заполнения: кадр растягивается/сжимается на d сэмплов,
+        // чтобы запас в outRing не рос от дрейфа mic относительно выхода.
         const float* mono = micFrame_.planes()[0];
+        uint32_t outFrames = frame;
+        const int d = fill_.step();
+        if (d != 0) {
+            outFrames = uint32_t(int(frame) + d);
+            stretchLinear(mono, frame, stretchBuf_.data(), outFrames);
+            mono = stretchBuf_.data();
+            if (d > 0) outInserted_.fetch_add(uint64_t(d), std::memory_order_relaxed);
+            else outDropped_.fetch_add(uint64_t(-d), std::memory_order_relaxed);
+        }
+
+        // Моно -> каналы выхода дублированием.
         const uint32_t oc = settings_.outputChannels;
-        for (uint32_t i = 0; i < frame; ++i) {
+        for (uint32_t i = 0; i < outFrames; ++i) {
             for (uint32_t c = 0; c < oc; ++c) outBuf_[size_t(i) * oc + c] = mono[i];
         }
-        if (outRing_.write(outBuf_.data(), frame) < frame) {
+        if (outRing_.write(outBuf_.data(), outFrames) < outFrames) {
             outOverruns_.fetch_add(1, std::memory_order_relaxed);
         }
         frames_.fetch_add(1, std::memory_order_relaxed);
@@ -206,12 +228,30 @@ void Engine::processAvailable() {
 }
 
 void Engine::fillOutput(float* interleaved, uint32_t frames) {
+    // Пока микрофон не дал ни одного кадра, отдаём тишину, не трогая
+    // предзаполнение: иначе render-поток съедает его до старта mic-потока и
+    // регулятор потом десятки секунд поднимает запас с нуля.
+    if (frames_.load(std::memory_order_relaxed) == 0) {
+        std::memset(interleaved, 0, size_t(frames) * settings_.outputChannels * sizeof(float));
+        return;
+    }
     const uint32_t n = outRing_.read(interleaved, frames);
     if (n < frames) {
         std::memset(interleaved + size_t(n) * settings_.outputChannels, 0,
                     size_t(frames - n) * settings_.outputChannels * sizeof(float));
-        if (frames_.load(std::memory_order_relaxed) > 0) outUnderruns_.fetch_add(1, std::memory_order_relaxed);
+        outUnderruns_.fetch_add(1, std::memory_order_relaxed);
     }
+    // Грубый сброс, если накопилось больше полусекунды сверх цели (например,
+    // после долгого стопа render-потока): плавный регулятор такое рассасывал
+    // бы минутами.
+    uint32_t left = outRing_.readable();
+    const uint32_t hardLimit = fill_.target() + fmt_.sampleRate / 2;
+    if (left > hardLimit) {
+        outRing_.discard(left - fill_.target());
+        outOverruns_.fetch_add(1, std::memory_order_relaxed);
+        left = outRing_.readable();
+    }
+    fill_.observe(left);
 }
 
 EngineStatus Engine::status() const {
@@ -229,6 +269,10 @@ EngineStatus Engine::status() const {
     s.refMissing = refMissing_.load();
     s.outUnderruns = outUnderruns_.load();
     s.outOverruns = outOverruns_.load();
+    s.outInserted = outInserted_.load();
+    s.outDropped = outDropped_.load();
+    const uint32_t margin = fill_.marginFrames();
+    s.outMarginMs = margin == FillController::kNone ? 0 : margin * 1000 / fmt_.sampleRate;
     s.micGaps = micAsm_.stats().gaps;
     s.refGaps = refAsm_.stats().gaps;
     s.micDriftPpm = micAsm_.timelineSnapshot().driftPpm();

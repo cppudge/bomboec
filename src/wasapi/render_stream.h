@@ -22,7 +22,11 @@ public:
     struct Options {
         uint32_t sampleRate = 48000;
         uint32_t channels = 2;
-        uint32_t bufferMs = 40;  // размер буфера WASAPI; типичный период 10 ms
+        uint32_t bufferMs = 40;  // ёмкость буфера WASAPI, не задержка
+        // До скольких ms дозаполнять буфер на каждое событие; 0 = до краёв.
+        // Задержка на этом участке равна целевому заполнению; безопасный
+        // минимум 2 периода engine (обычно 20 ms), меньше периода не даём.
+        uint32_t targetMs = 0;
     };
     using FillHandler = std::function<void(float* interleaved, uint32_t frames)>;
 
@@ -38,6 +42,8 @@ public:
 
     uint32_t channels() const { return options_.channels; }
     uint32_t bufferFrames() const { return bufferFrames_; }
+    uint32_t periodFrames() const { return periodFrames_; }  // период engine
+    uint32_t targetFrames() const { return targetFrames_; }  // целевое заполнение
     std::string lastError() const;
 
 private:
@@ -52,6 +58,8 @@ private:
     std::thread thread_;
     std::atomic<bool> running_{false};
     uint32_t bufferFrames_ = 0;
+    uint32_t periodFrames_ = 0;
+    uint32_t targetFrames_ = 0;
     mutable std::atomic<bool> hasError_{false};
     std::string threadError_;
 };

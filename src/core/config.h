@@ -26,7 +26,8 @@ struct EngineSettings {
     std::string micName, speakersName, outputName;
     bool micRaw = true;
     uint32_t referenceLeadMs = 20;   // reference берётся на столько раньше mic (запас на джиттер loopback)
-    uint32_t outputBufferMs = 30;    // предзаполнение выходного буфера
+    uint32_t outputBufferMs = 10;    // целевой запас в выходном кольце после чтения render-потоком
+    uint32_t outputRenderMs = 20;    // целевое заполнение буфера WASAPI выхода (>= 2 периодов engine)
     uint32_t outputChannels = 2;
     std::string recordDir;           // непусто: debug-запись mic_raw/ref/out в WAV
 };

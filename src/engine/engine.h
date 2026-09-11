@@ -2,6 +2,7 @@
 
 #include "core/chain.h"
 #include "core/config.h"
+#include "core/fill_controller.h"
 #include "core/frame.h"
 #include "core/packet_assembler.h"
 #include "core/ring_buffer.h"
@@ -29,9 +30,12 @@ struct EngineStatus {
     uint64_t refMissing = 0;     // кадров, где reference не был доступен целиком
     uint64_t micGaps = 0, refGaps = 0;
     uint64_t outUnderruns = 0, outOverruns = 0;
+    uint64_t outInserted = 0, outDropped = 0;  // сэмплов добавлено/убрано регулятором заполнения
     double micDriftPpm = 0.0, refDriftPpm = 0.0;
     double referenceLeadMs = 0.0;
-    uint32_t outBufferedMs = 0;  // сколько накоплено в выходном ring
+    uint32_t outBufferedMs = 0;  // сколько сейчас в выходном ring
+    uint32_t outMarginMs = 0;    // минимальный остаток после чтения за окно (цель: output_buffer_ms)
+    uint32_t outRenderMs = 0;    // целевое заполнение буфера WASAPI выхода
 };
 
 // Realtime-конвейер: mic -> [выровненный reference] -> Chain -> render endpoint.
@@ -41,6 +45,11 @@ struct EngineStatus {
 // Reference для кадра mic с временем t берётся из refRing по индексу
 // refTimeline.sampleAt(t - lead): дрейф часов компенсируется проскальзыванием
 // на сэмпл, а не накоплением задержки.
+//
+// Задержка выхода: outRing держит запас output_buffer_ms после каждого чтения
+// (FillController подгоняет его растяжением кадра на 1..4 сэмпла, компенсируя
+// дрейф микрофона относительно выходного устройства), буфер WASAPI выхода
+// дозаполняется только до output_render_ms.
 class Engine {
 public:
     Engine();
@@ -70,7 +79,8 @@ private:
 
     RingBuffer micRing_, refRing_, outRing_;
     PacketAssembler micAsm_, refAsm_;
-    std::vector<float> micBuf_, refBuf_, outBuf_;
+    FillController fill_;
+    std::vector<float> micBuf_, refBuf_, outBuf_, stretchBuf_;
     Frame micFrame_, refFrame_;
     int64_t leadTicks_ = 0;
     uint64_t refKeepFrames_ = 0;
@@ -82,6 +92,7 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<float> micDb_{-100.0f}, refDb_{-100.0f}, outDb_{-100.0f};
     std::atomic<uint64_t> frames_{0}, refMissing_{0}, outUnderruns_{0}, outOverruns_{0};
+    std::atomic<uint64_t> outInserted_{0}, outDropped_{0};
     mutable std::mutex infoMutex_;
     EngineStatus info_;  // статические поля (имена устройств и т.п.)
 };

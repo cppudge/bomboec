@@ -7,6 +7,7 @@ add_executable(bomboec_tests
     test_config.cpp
     test_chain.cpp
     test_stages.cpp
+    test_fill_controller.cpp
 )
 target_link_libraries(bomboec_tests PRIVATE bomboec_stages Catch2::Catch2WithMain)
 

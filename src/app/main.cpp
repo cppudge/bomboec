@@ -56,7 +56,8 @@ output_name = ""
 [engine]
 mic_raw = true
 reference_lead_ms = 20
-output_buffer_ms = 30
+output_buffer_ms = 10   # запас в выходном кольце (джиттер микрофона)
+output_render_ms = 20   # заполнение буфера WASAPI выхода, не меньше 2 периодов
 output_channels = 2
 record_dir = ""
 
@@ -226,14 +227,16 @@ std::string statusText(App& app) {
                   "levels     mic %6.1f   ref %6.1f   out %6.1f dBFS\r\n"
                   "aec        delay %s   erl %s   erle %s\r\n"
                   "reference  lead %.0f ms   missing %llu   gaps mic %llu / ref %llu\r\n"
-                  "output     buffered %u ms   underruns %llu   overruns %llu\r\n"
+                  "output     ring %u ms (margin %u ms)   wasapi %u ms   underruns %llu   overruns %llu\r\n"
+                  "fill ctl   inserted %llu   dropped %llu samples\r\n"
                   "drift      mic %+.0f ppm   ref %+.0f ppm\r\n"
                   "frames     %llu\r\n%s",
                   s.micName.c_str(), s.micRaw ? "on" : "off", s.speakersName.c_str(), s.outputName.c_str(),
                   s.micDb, s.refDb, s.outDb, opt(s.stats.delayMs, "ms").c_str(), opt(s.stats.erlDb, "dB").c_str(),
                   opt(s.stats.erleDb, "dB").c_str(), s.referenceLeadMs, (unsigned long long)s.refMissing,
-                  (unsigned long long)s.micGaps, (unsigned long long)s.refGaps, s.outBufferedMs,
-                  (unsigned long long)s.outUnderruns, (unsigned long long)s.outOverruns, s.micDriftPpm,
+                  (unsigned long long)s.micGaps, (unsigned long long)s.refGaps, s.outBufferedMs, s.outMarginMs,
+                  s.outRenderMs, (unsigned long long)s.outUnderruns, (unsigned long long)s.outOverruns,
+                  (unsigned long long)s.outInserted, (unsigned long long)s.outDropped, s.micDriftPpm,
                   s.refDriftPpm, (unsigned long long)s.framesProcessed,
                   s.error.empty() ? "" : ("ERROR: " + s.error).c_str());
     return buf;

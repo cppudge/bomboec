@@ -39,6 +39,7 @@ NTSTATUS CCableBuffer::Init(_In_ ULONG capacityBytes, _In_ ULONG primeBytes)
     m_underruns = 0;
     m_overruns = 0;
     m_realigns = 0;
+    m_trimmedBytes = 0;
     return STATUS_SUCCESS;
 }
 
@@ -154,6 +155,15 @@ void CCableBuffer::Read(_Out_writes_bytes_all_(bytes) BYTE* data, _In_ ULONG byt
     {
         if (m_count >= m_prime + CABLE_BLOCK_ALIGN)
         {
+            // Пока никто не читал, render-сторона могла накопить до capacity
+            // (вплоть до секунды). Задержка кабеля = m_prime, поэтому всё, что
+            // старше, отбрасываем: иначе backlog остаётся в задержке навсегда,
+            // так как обе стороны идут от одного QPC и не сближаются.
+            if (m_count > m_prime + CABLE_BLOCK_ALIGN)
+            {
+                m_trimmedBytes += m_count - (m_prime + CABLE_BLOCK_ALIGN);
+                m_count = m_prime + CABLE_BLOCK_ALIGN;
+            }
             // Выравниваем хвост под фазу кадра capture-потока: байт, который
             // ляжет в позицию streamPos, должен иметь ту же фазу в render-потоке.
             const ULONG wantPhase = (ULONG)(streamPos % CABLE_BLOCK_ALIGN);

@@ -4,6 +4,7 @@
 #include <ksmedia.h>
 #include <mmreg.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace bomboec::wasapi {
@@ -50,6 +51,15 @@ bool RenderStream::open(IMMDevice* device, const Options& options, FillHandler h
         return false;
     }
     client_->GetBufferSize(&bufferFrames_);
+    REFERENCE_TIME defaultPeriod = 100'000, minPeriod = 0;
+    client_->GetDevicePeriod(&defaultPeriod, &minPeriod);
+    periodFrames_ = std::max<uint32_t>(1, uint32_t(double(defaultPeriod) * options.sampleRate / 1e7 + 0.5));
+    if (options.targetMs == 0) {
+        targetFrames_ = bufferFrames_;
+    } else {
+        targetFrames_ = std::clamp<uint32_t>(uint32_t(uint64_t(options.targetMs) * options.sampleRate / 1000),
+                                             periodFrames_, bufferFrames_);
+    }
     hr = client_->GetService(IID_PPV_ARGS(&render_));
     if (FAILED(hr)) {
         error = "IAudioRenderClient: " + hresultToString(hr);
@@ -67,10 +77,11 @@ bool RenderStream::start(std::string& error) {
         return false;
     }
     if (running_.load()) return true;
-    // Предзаполняем буфер тишиной, чтобы старт был без щелчка.
+    // Предзаполняем тишиной до целевого уровня, чтобы старт был без щелчка
+    // и без лишней задержки.
     BYTE* data = nullptr;
-    if (SUCCEEDED(render_->GetBuffer(bufferFrames_, &data))) {
-        render_->ReleaseBuffer(bufferFrames_, AUDCLNT_BUFFERFLAGS_SILENT);
+    if (SUCCEEDED(render_->GetBuffer(targetFrames_, &data))) {
+        render_->ReleaseBuffer(targetFrames_, AUDCLNT_BUFFERFLAGS_SILENT);
     }
     ResetEvent(stopEvent_.get());
     const HRESULT hr = client_->Start();
@@ -121,7 +132,10 @@ void RenderStream::threadMain() {
             hasError_.store(true);
             break;
         }
-        const UINT32 frames = bufferFrames_ - padding;
+        // Дозаполняем только до цели: всё, что лежит в буфере сверх периода,
+        // это задержка. Полный буфер нужен лишь как ёмкость на случай
+        // позднего пробуждения.
+        const UINT32 frames = padding < targetFrames_ ? targetFrames_ - padding : 0;
         if (frames == 0) continue;
         BYTE* data = nullptr;
         hr = render_->GetBuffer(frames, &data);

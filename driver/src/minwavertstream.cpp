@@ -745,7 +745,9 @@ NTSTATUS CMiniportWaveRTStream::GetReadPacket
     // driver, it is extrapolated from the sample driver's internal simulated position correlation
     // [m_ullLinearPosition @ m_ullDmaTimeStamp] and the sample's internal 64-bit packet counter, subtracting
     // 1 from the packet counter to compute the time at the start of that last completed packet.
-    ULONGLONG linearPositionOfAvailablePacket = packetCounter * (m_ulDmaBufferSize / m_ulNotificationsPerBuffer);
+    // bomboec: в образце здесь packetCounter без вычитания единицы, то есть
+    // время конца доступного пакета; клиенту нужно время его первого сэмпла.
+    ULONGLONG linearPositionOfAvailablePacket = (packetCounter - 1) * (m_ulDmaBufferSize / m_ulNotificationsPerBuffer);
     // Need to divide by (1000 * 10000 because m_ulDmaMovementRate is average bytes per sec
     ULONGLONG carryForwardBytes = (hnsElapsedTimeCarryForward * m_ulDmaMovementRate) / 10000000;
     ULONGLONG deltaLinearPosition = ullLinearPosition + carryForwardBytes - linearPositionOfAvailablePacket;
