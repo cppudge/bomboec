@@ -54,10 +54,10 @@ build.ps1                     conan install + cmake + ctest
 conan/profiles/               профили Conan для проекта
 conan-recipes/recipes/        локальные рецепты (webrtc-audio-processing, позже speexdsp, rnnoise)
 config/default.toml           конфигурация конвейера по умолчанию
-src/core/                     Frame, RingBuffer, Timeline QPC<->sample, IStage, Chain, StageRegistry, config
+src/core/                     Frame, RingBuffer, Timeline, PacketAssembler, WAV, IStage, Chain, StageRegistry, config
 src/stages/                   hpf, webrtc (AEC3 + hpf/ns/agc из APM), limiter; позже speex_aec, rnnoise, ...
-src/wasapi/                   устройства, capture, loopback, render, уведомления (этап 2)
-src/tools/                    apm_smoke; далее bomboec-rec (рекордер), bomboec-proc (офлайн-процессор)
+src/wasapi/                   devices, CaptureStream (mic/loopback), RenderStream (keepalive, позже cable)
+src/tools/                    apm_smoke, bomboec-rec (рекордер); далее bomboec-proc (офлайн-процессор)
 src/app/                      tray-приложение (этап 4)
 tests/                        Catch2
 ```
@@ -104,6 +104,24 @@ public:
 на каждый кадр `ProcessReverseStream` со стерео reference, затем `ProcessStream` с mono mic.
 Статистика для диагностики из `GetStatistics`. NS и AGC внутри APM включаются флагами конфига.
 
+## Рекордер
+
+```powershell
+.uild\Release\src	oolsomboec-rec.exe --list
+.uild\Release\src	oolsomboec-rec.exe --out recordings	ake1 --seconds 20 --mic "<id>" --speakers "<id>"
+```
+
+Пишет `mic.wav` (mono) и `ref.wav` (stereo), 48 kHz float32, выровненные по QPC-меткам
+пакетов: сэмпл N обоих файлов соответствует одному моменту времени с точностью до дрейфа.
+`metadata.json` содержит устройства, пропуски/наложения, джиттер меток и оценку дрейфа.
+Микрофон открывается в raw mode (если endpoint позволяет), loopback держится живым
+собственным потоком тишины (`--no-keepalive` показывает, что без него пакетов нет вовсе).
+
+Замеры на этой машине (сентябрь 2026): джиттер меток до 0.2 ms у Yeti и 0.03 ms у loopback,
+относительный дрейф микрофон/колонки около 140 ppm. Это аргумент в пользу адаптивного
+ресемплинга reference на этапе 5. Виртуальный микрофон NVIDIA Broadcast (default) не
+принимает raw mode и сам обрабатывает звук, для записей нужен физический микрофон.
+
 ## Принципы realtime-части
 
 - Микрофон открывается в raw mode (`AUDCLNT_STREAMOPTIONS_RAW`), без категории Communications,
@@ -124,7 +142,7 @@ public:
 |---|---|---|
 | 0. Бутстрап (готово) | conanfile, рецепт AEC3, скелет CMake, скрипт сборки | тестовый бинарь линкуется с APM и прогоняет тишину |
 | 1. Ядро (готово) | Frame, ring, timeline, IStage, Chain, Registry, конфиг TOML, тесты | стадии hpf и webrtc проходят unit-тесты на синтетике |
-| 2. Рекордер | WASAPI mic в raw mode, loopback с keepalive, QPC-метки, multi-track WAV | синхронные записи с реального стола плюс metadata.json |
+| 2. Рекордер (готово) | WASAPI mic в raw mode, loopback с keepalive, QPC-метки, multi-track WAV | синхронные записи с реального стола плюс metadata.json |
 | 3. Офлайн-процессор | WAV в цепочку, WAV на выходе, ERLE и статистика APM | подобран конфиг AEC3 под конкретный setup |
 | 4. Realtime | движок на mic-потоке, reference по таймлайну, вывод в VB-Cable, tray с диагностикой | Discord работает через виртуальный микрофон |
 | 5. Устойчивость | уведомления устройств, перезапуск, контроллер заполнения выхода, измерение дрейфа, статический сдвиг reference | сутки работы без рассинхрона |

@@ -2,6 +2,8 @@ add_executable(bomboec_tests
     test_frame.cpp
     test_ring_buffer.cpp
     test_timeline.cpp
+    test_packet_assembler.cpp
+    test_wav.cpp
     test_config.cpp
     test_chain.cpp
     test_stages.cpp
