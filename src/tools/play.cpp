@@ -1,6 +1,8 @@
 // bomboec-play: воспроизведение тестового сигнала или WAV в render endpoint.
 //
-//   bomboec-play --output <id> --seconds 10 [--chirp | --wav file.wav] [--gain-db -12]
+//   bomboec-play --output <id> --seconds 10 [--wav file.wav] [--gain-db -12]
+//
+// Без --wav играет чирп 100..8000 Hz (1 с) с паузой 0.5 с.
 //
 // Используется для проверки virtual cable и калибровки задержки.
 

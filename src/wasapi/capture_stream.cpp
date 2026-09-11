@@ -153,15 +153,16 @@ bool CaptureStream::start(std::string& error) {
         stop();                              // поток завершился с ошибкой: собрать и попробовать снова
     }
     ResetEvent(stopEvent_.get());
-    const HRESULT hr = client_->Start();
-    if (FAILED(hr)) {
-        error = "IAudioClient::Start: " + hresultToString(hr);
-        return false;
-    }
     threadError_.clear();
     hasError_.store(false);
     running_.store(true);
-    thread_ = std::thread([this] { threadMain(); });
+    thread_ = std::thread([this] { threadMain(); });  // ждёт события ещё до Start()
+    const HRESULT hr = client_->Start();
+    if (FAILED(hr)) {
+        error = "IAudioClient::Start: " + hresultToString(hr);
+        stop();
+        return false;
+    }
     return true;
 }
 

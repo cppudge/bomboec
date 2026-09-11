@@ -49,3 +49,33 @@ TEST_CASE("Watchdog retries a failing start with growing backoff", "[watchdog]")
     CHECK(w.failures() == 0);
     CHECK(w.tick(now + 32'001, false, false, 0) == Action::Start);
 }
+
+TEST_CASE("Device notifications: restart only when the engine's devices are affected", "[watchdog]") {
+    using bomboec::decideDeviceChange;
+    using bomboec::DeviceChangeAction;
+    using bomboec::DeviceChangeFacts;
+    DeviceChangeFacts f;
+    f.running = true;
+    CHECK(decideDeviceChange(f) == DeviceChangeAction::None);  // чужое устройство: ничего
+
+    f.micPresent = false;
+    CHECK(decideDeviceChange(f) == DeviceChangeAction::Restart);
+    f.micPresent = true;
+    f.outputPresent = false;
+    CHECK(decideDeviceChange(f) == DeviceChangeAction::Restart);
+    f.outputPresent = true;
+
+    f.defaultChanged = true;
+    CHECK(decideDeviceChange(f) == DeviceChangeAction::None);  // устройства заданы явно
+    f.usesDefault = true;
+    CHECK(decideDeviceChange(f) == DeviceChangeAction::Restart);
+    f.defaultChanged = false;
+
+    f.referenceActive = false;
+    CHECK(decideDeviceChange(f) == DeviceChangeAction::ReopenReference);
+
+    f.running = false;
+    CHECK(decideDeviceChange(f) == DeviceChangeAction::StartNow);  // устройство вернулось: без backoff
+    f.wantRunning = false;
+    CHECK(decideDeviceChange(f) == DeviceChangeAction::None);
+}

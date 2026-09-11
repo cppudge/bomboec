@@ -44,6 +44,9 @@ public:
         reason_ = Reason::None;
     }
 
+    // Устройство появилось (уведомление системы): следующая попытка старта сразу, backoff не ждём.
+    void retryNow() { nextAttemptMs_ = 0; }
+
     // running, threadError, framesProcessed: из EngineStatus. Вызывать, только пока
     // пользователь хочет, чтобы движок работал.
     Action tick(uint64_t nowMs, bool running, bool threadError, uint64_t framesProcessed) {
@@ -77,5 +80,33 @@ private:
     uint64_t startedMs_ = 0;
     Reason reason_ = Reason::None;
 };
+
+// Что делать по уведомлению системы об аудиоустройствах (IMMNotificationClient),
+// когда события за окно дебаунса собраны. Чистая логика, факты собирает приложение.
+struct DeviceChangeFacts {
+    bool running = false;
+    bool wantRunning = true;
+    bool micPresent = true;       // микрофон движка всё ещё среди активных endpoint'ов
+    bool outputPresent = true;    // выход движка тоже
+    bool referenceActive = true;  // loopback колонок работает
+    bool defaultChanged = false;  // сменилось устройство по умолчанию
+    bool usesDefault = false;     // хотя бы одно устройство в конфиге = "по умолчанию" (пустой id)
+};
+
+enum class DeviceChangeAction {
+    None,
+    Restart,          // устройство движка пропало или сменился нужный default: стоп и старт заново
+    ReopenReference,  // движок работает без reference: попробовать открыть колонки сейчас
+    StartNow,         // движок должен работать, но стоит: попытка старта без ожидания backoff
+};
+
+inline DeviceChangeAction decideDeviceChange(const DeviceChangeFacts& f) {
+    if (!f.wantRunning) return DeviceChangeAction::None;
+    if (!f.running) return DeviceChangeAction::StartNow;
+    if (!f.micPresent || !f.outputPresent) return DeviceChangeAction::Restart;
+    if (f.defaultChanged && f.usesDefault) return DeviceChangeAction::Restart;
+    if (!f.referenceActive) return DeviceChangeAction::ReopenReference;
+    return DeviceChangeAction::None;
+}
 
 }  // namespace bomboec

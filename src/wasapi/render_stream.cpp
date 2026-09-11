@@ -101,15 +101,19 @@ bool RenderStream::start(std::string& error) {
         return false;
     }
     ResetEvent(stopEvent_.get());
-    hr = client_->Start();
-    if (FAILED(hr)) {
-        error = "IAudioClient::Start (render): " + hresultToString(hr);
-        return false;
-    }
     threadError_.clear();
     hasError_.store(false);
     running_.store(true);
+    // Поток ждёт события ещё до Start(): иначе, если он просыпался поздно (создание
+    // потока, MMCSS), первый вызов заполнял буфер целиком и разом забирал из outRing
+    // весь запас плюс первый кадр, а регулятор потом секунды поднимал запас с нуля.
     thread_ = std::thread([this] { threadMain(); });
+    hr = client_->Start();
+    if (FAILED(hr)) {
+        error = "IAudioClient::Start (render): " + hresultToString(hr);
+        stop();
+        return false;
+    }
     return true;
 }
 

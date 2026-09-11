@@ -7,6 +7,8 @@ add_library(bomboec_wasapi STATIC
     capture_stream.cpp
     render_stream.h
     render_stream.cpp
+    device_notifier.h
+    device_notifier.cpp
 )
 add_library(bomboec::wasapi ALIAS bomboec_wasapi)
 target_include_directories(bomboec_wasapi PUBLIC ${PROJECT_SOURCE_DIR}/src)

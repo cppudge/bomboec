@@ -61,7 +61,9 @@ int run(int argc, char** argv) {
     {
         const EngineStatus s = engine.status();
         std::printf("mic:      %s (raw %s)\nloopback: %s\noutput:   %s\nreference lead %.0f ms\n", s.micName.c_str(),
-                    s.micRaw ? "on" : "off", s.speakersName.c_str(), s.outputName.c_str(), s.referenceLeadMs);
+                    s.micRaw ? "on" : "off", s.referenceActive ? s.speakersName.c_str() : "none", s.outputName.c_str(),
+                    s.referenceLeadMs);
+        if (!s.warning.empty()) std::printf("warning:  %s\n", s.warning.c_str());
     }
 
     const double seconds = args["seconds"].as<double>();
