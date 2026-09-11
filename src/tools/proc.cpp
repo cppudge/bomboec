@@ -6,7 +6,7 @@
 // Печатает статистику раз в секунду и итоговые метрики:
 //   - подавление на кадрах, где reference активен (эхо + возможная речь);
 //   - подавление на кадрах без reference (ожидается ~0 dB: мера искажения речи);
-//   - время сходимости по ERLE из APM.
+//   - время сходимости: первая секунда с подавлением >= 10 dB при активном reference.
 // --ref-offset-ms > 0 задерживает reference относительно mic (проверка статического сдвига).
 
 #include "core/chain.h"
@@ -183,18 +183,29 @@ int main(int argc, char** argv) {
 
         const StageStats st = chain->stats();
         const double t = double(f) * fmt.frameSamples / fmt.sampleRate;
-        if (!convergedAt && st.erleDb && *st.erleDb >= 10.0) convergedAt = t;
+        secIn += inRms * inRms;
+        secRef += refRms * refRms;
+        secOut += outRms * outRms;
+        ++secFrames;
+        // Сходимость: полное подавление (линейный фильтр + подавитель остатка)
+        // за последнюю секунду >= 10 dB при активном reference. ERLE из APM
+        // отражает только линейную часть и здесь не показателен.
+        if (!convergedAt && refActive && secFrames * fmt.frameSamples >= fmt.sampleRate &&
+            10.0 * std::log10(secIn / std::max(secOut, 1e-18)) >= 10.0) {
+            convergedAt = t;
+        }
         if (csv) {
             std::fprintf(csv, "%.3f,%.2f,%.2f,%.2f,%s,%s,%s,%s\n", t, dbfs(inRms), dbfs(refRms), dbfs(outRms),
                          fmtOpt(st.delayMs, "%.0f").c_str(), fmtOpt(st.erlDb, "%.2f").c_str(),
                          fmtOpt(st.erleDb, "%.2f").c_str(), fmtOpt(st.residualEchoLikelihood, "%.3f").c_str());
         }
 
-        secIn += inRms * inRms;
-        secRef += refRms * refRms;
-        secOut += outRms * outRms;
-        ++secFrames;
-        if (!quiet && secFrames * fmt.frameSamples >= fmt.sampleRate) {
+        if (secFrames * fmt.frameSamples >= fmt.sampleRate) {
+            if (quiet) {
+                secIn = secRef = secOut = 0.0;
+                secFrames = 0;
+                continue;
+            }
             std::printf("%6.1f s  mic %6.1f  ref %6.1f  out %6.1f dBFS  att %5.1f dB  delay %s ms  erl %s  erle %s  res %s\n",
                         t, dbfs(std::sqrt(secIn / secFrames)), dbfs(std::sqrt(secRef / secFrames)),
                         dbfs(std::sqrt(secOut / secFrames)), 10.0 * std::log10(secIn / std::max(secOut, 1e-18)),
@@ -221,9 +232,9 @@ int main(int argc, char** argv) {
                     dbfs(std::sqrt(idleOut / idleFrames)));
     }
     if (convergedAt) {
-        std::printf("  ERLE >= 10 dB first reached at %.2f s\n", *convergedAt);
+        std::printf("  attenuation >= 10 dB over 1 s first reached at %.2f s\n", *convergedAt);
     } else {
-        std::printf("  ERLE never reached 10 dB\n");
+        std::printf("  attenuation never reached 10 dB over a full second with reference active\n");
     }
     const StageStats st = chain->stats();
     std::printf("  final stats: delay %s ms, erl %s dB, erle %s dB\n", fmtOpt(st.delayMs, "%.0f").c_str(),

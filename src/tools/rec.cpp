@@ -213,14 +213,17 @@ int main(int argc, char** argv) {
                 (unsigned long long)mic.skip, (unsigned long long)ref.skip);
 
     const auto deadline = startWall + std::chrono::milliseconds(int64_t(seconds * 1000));
-    int tick = 0;
+    auto nextReport = startWall + std::chrono::seconds(1);
     while (std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
         mic.drain();
         ref.drain();
-        if (++tick % 100 == 0) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= nextReport) {
+            nextReport += std::chrono::seconds(1);
+            const double elapsed = std::chrono::duration<double>(now - startWall).count();
             std::printf("\r%5.1f s  mic %llu  ref %llu  gaps %llu/%llu  drift %+.1f/%+.1f ppm   ",
-                        double(tick) / 100.0, (unsigned long long)mic.written, (unsigned long long)ref.written,
+                        elapsed, (unsigned long long)mic.written, (unsigned long long)ref.written,
                         (unsigned long long)mic.assembler.stats().gaps, (unsigned long long)ref.assembler.stats().gaps,
                         mic.assembler.timeline().driftPpm(), ref.assembler.timeline().driftPpm());
             std::fflush(stdout);
