@@ -13,6 +13,7 @@
 // TaskbarCreated (иконка возвращается после перезапуска explorer.exe) и находится
 // через FindWindow из второго экземпляра.
 
+#include "app/crash_dump.h"
 #include "core/config.h"
 #include "core/utf8.h"
 #include "engine/engine.h"
@@ -466,6 +467,9 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 }  // namespace
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
+    // Дамп падения рядом с логом: bomboec-<время>-<pid>.dmp (разбирается с bomboec.pdb).
+    bomboec::crash::install(exeDir());
+
     // Один экземпляр: второй запуск показывает окно статуса первого.
     HANDLE mutex = CreateMutexW(nullptr, TRUE, kMutexName);
     if (GetLastError() == ERROR_ALREADY_EXISTS) {

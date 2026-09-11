@@ -18,10 +18,12 @@ add_executable(bomboec_tests
     test_pipeline_alignment.cpp
     test_realtime.cpp
     test_recorder.cpp
+    test_crash_dump.cpp
     "${BOMBOEC_MANIFEST}"
 )
 target_link_libraries(bomboec_tests PRIVATE
-    bomboec::options bomboec::core bomboec::stages bomboec::wasapi bomboec::engine Catch2::Catch2WithMain
+    bomboec::options bomboec::core bomboec::stages bomboec::wasapi bomboec::engine bomboec::crash
+    Catch2::Catch2WithMain
 )
 
 include(Catch)

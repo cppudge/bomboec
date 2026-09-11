@@ -34,6 +34,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # для clangd в IDE
 # Все exe в одном месте: приложение, утилиты и тесты.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
+# CRT статически: bomboec.exe и утилиты запускаются без VC++ Redistributable. cmake-conan
+# переводит это в compiler.runtime=static профиля Conan, зависимости собираются так же.
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+# Отладочная информация и в Release (/Z7 в объектниках, PDB рядом с exe): падение у
+# пользователя разбирается по минидампу (src/app/crash_dump.h) и PDB той же сборки.
+set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "Embedded")
 
 # Код чист на /W4, поэтому предупреждения по умолчанию ошибки. -DBOMBOEC_WERROR=OFF, если новый
 # компилятор найдёт что-то раньше, чем это успеют поправить.
@@ -48,6 +54,8 @@ if(MSVC)
         "$<$<COMPILE_LANGUAGE:CXX>:/W4;/permissive-;/utf-8;/Zc:__cplusplus>"
         "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<BOOL:${BOMBOEC_WERROR}>>:/WX>")
     target_compile_definitions(bomboec_options INTERFACE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
+    # PDB и для Release; /DEBUG выключает /OPT:REF и /OPT:ICF, поэтому они указаны явно.
+    target_link_options(bomboec_options INTERFACE "$<$<CONFIG:Release>:/DEBUG;/OPT:REF;/OPT:ICF>")
 endif()
 # Манифест для каждого add_executable: кодовая страница процесса UTF-8 (см. сам файл).
 set(BOMBOEC_MANIFEST "${PROJECT_SOURCE_DIR}/cmake/utf8.manifest")

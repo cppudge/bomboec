@@ -1,8 +1,16 @@
+# Минидампы при падении: отдельная библиотека, чтобы запись дампа проверялась тестом.
+add_library(bomboec_crash STATIC crash_dump.h crash_dump.cpp)
+add_library(bomboec::crash ALIAS bomboec_crash)
+target_include_directories(bomboec_crash PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(bomboec_crash PRIVATE bomboec::options dbghelp)
+
 # Ресурс версии (свойства файла в проводнике): версия из project() в корневом CMakeLists.txt.
 configure_file(bomboec.rc.in "${CMAKE_CURRENT_BINARY_DIR}/bomboec.rc" @ONLY)
 
 add_executable(bomboec WIN32 main.cpp "${CMAKE_CURRENT_BINARY_DIR}/bomboec.rc" "${BOMBOEC_MANIFEST}")
-target_link_libraries(bomboec PRIVATE bomboec::options bomboec::engine bomboec::wasapi shell32 user32 gdi32 ole32)
+target_link_libraries(bomboec PRIVATE
+    bomboec::options bomboec::engine bomboec::wasapi bomboec::crash shell32 user32 gdi32 ole32
+)
 
 # version.h (версия и git describe для лога, окна статуса и ресурса) обновляется на каждой сборке.
 set(BOMBOEC_VERSION_H "${CMAKE_CURRENT_BINARY_DIR}/generated/version.h")
