@@ -63,7 +63,7 @@ CRT линкуется статически: exe не требуют VC++ Redist
 | Файл | Кто пишет | Что это |
 |---|---|---|
 | `bomboec.toml` | пользователь | конфиг; при первом запуске создаётся из встроенного `config/default.toml` |
-| `bomboec.state.toml` | приложение | устройства, выбранные в меню; перекрывает `[devices]` конфига |
+| `bomboec.state.toml` | приложение | устройства, выбранные в меню; его `[devices]` перекрывает `[devices]` конфига |
 | `bomboec.log`, `.log.1` | приложение | лог, ротация на 1 MB |
 | `bomboec-*.dmp` | приложение | минидамп при падении (разбирается с `bomboec.pdb` той же сборки) |
 
@@ -72,26 +72,39 @@ CRT линкуется статически: exe не требуют VC++ Redist
 пропуски и скачки reference, буфер выхода, дрейф часов, версия.
 
 Выход в те же колонки, что служат reference, и микрофон, который является другим концом
-выходного кабеля, движок не открывает: это петли. Если устройство пропало или микрофон перестал
-отдавать звук, движок перезапускается с паузами 1, 2, 5, 10, 30 с, пока устройство не вернётся.
+выходного кабеля, движок не открывает: это петли. Если микрофон или выход пропали или микрофон
+перестал отдавать звук, движок перезапускается с паузами 1, 2, 5, 10, 30 с, пока устройство не
+вернётся. Колонки (reference) необязательны: без них микрофон идёт в выход без подавления эха,
+в статусе висит предупреждение, и раз в 5 с движок пробует открыть loopback снова.
 
 ### Конфиг
 
 `config/default.toml` описывает все ключи с комментариями. Значения проверяются по типу и
 диапазону; неизвестный ключ (опечатка) даёт предупреждение в логе и в уведомлении.
 
-`[engine]`: `mic_raw` (true, raw mode микрофона без системных APO), `reference_lead_ms` (20),
+`[engine]`: `mic_raw` (true, raw mode микрофона без системных APO), `reference_lead_ms` (5),
 `output_buffer_ms` (10, запас в выходном кольце), `output_render_ms` (20, заполнение буфера WASAPI
 выхода), `output_channels` (2), `record_dir` (пусто; иначе debug-запись mic_raw/ref/out в WAV).
 
+`reference_lead_ms`: reference для кадра микрофона берётся на столько раньше времени кадра. AEC3
+ищет эхо только в прошлом reference, поэтому задержка динамик -> микрофон (на машине разработки
+около 32 ms по оценке `aec delay` в окне статуса, на USB-ЦАП бывает 10-15 ms) должна быть больше
+lead с запасом; иначе эхо не подавляется, а `delay` в статусе показывает 0-4 ms. Больше 5 ms не
+нужно: loopback отдаёт данные раньше их метки (engine смешивает на период вперёд), и `missing` в
+статусе не растёт даже при lead 0.
+
 Цепочка `[[chain]]` выполняется по порядку; каждая возможность (hpf, aec, ns, agc, limiter) может
-быть объявлена только одной стадией:
+быть объявлена только одной стадией. Ключи стадий проверяются по типу и диапазону (`StageParams`),
+неизвестный ключ даёт предупреждение:
 
 | id | Возможности | Ключи |
 |---|---|---|
 | `hpf` | hpf | `cutoff_hz` (80) |
-| `webrtc` | aec, и по флагам hpf/ns/agc | `aec` (true), `hpf` (false), `ns` (false), `ns_level` (moderate), `agc` (false), `filter_length_blocks` (13), `delay_num_filters` (5) |
-| `limiter` | limiter | `ceiling_db` (-1.0), `release_ms` (50) |
+| `webrtc` | aec, и по флагам hpf/ns/agc | `aec` (true), `hpf` (false), `ns` (false), `ns_level` (moderate: low, moderate, high, very_high), `agc` (false), `filter_length_blocks` (13, 1..60), `delay_num_filters` (5, 1..20) |
+| `limiter` | limiter | `ceiling_db` (-1.0, -60..0), `release_ms` (50, 0.1..10000) |
+
+Шумоподавление уже есть: `ns = true` и `ns_level` в стадии `webrtc` (NS из WebRTC), после правки
+конфига пункт меню «Reload config». Отдельный бэкенд NS (rnnoise) относится к этапу 6.
 
 Интерфейс стадии и правила для новых бэкендов: `src/core/stage.h` (новая стадия регистрируется в
 `StageRegistry` по строковому id).
@@ -144,7 +157,7 @@ scripts/                      vcvars.ps1, check.ps1 (clang-tidy + clang-format),
 conan-recipes/recipes/        локальные рецепты (webrtc-audio-processing)
 config/default.toml           конфигурация по умолчанию (встраивается в bomboec.exe)
 docs/                         архитектура, драйвер, замеры, решения, исследование
-src/core/                     Frame, RingBuffer, Timeline, PacketAssembler, FillController, SeqLock, WAV, IStage, Chain, конфиг
+src/core/                     Frame, RingBuffer, Timeline, PacketAssembler, FillController, SeqLock, WAV, IStage, StageParams, Chain, конфиг
 src/stages/                   hpf, webrtc (AEC3 + hpf/ns/agc из APM), limiter
 src/wasapi/                   устройства, CaptureStream (mic/loopback), RenderStream (keepalive, выход)
 src/engine/                   Pipeline (DSP без устройств), Engine (Pipeline + WASAPI), Watchdog, Recorder
@@ -165,7 +178,7 @@ tests/                        Catch2: модули, fakes/ (WASAPI), sim/ (си�
 | 4a. Realtime (готово) | движок на mic-потоке, reference по таймлайну, трей с диагностикой |
 | 4b. Virtual cable (готово) | драйвер на базе SimpleAudioSample, сборка через CMake, test-signing |
 | 4c. Задержка (готово) | обрезка backlog'а кабеля, prime 10 ms, целевое заполнение выхода, регулятор |
-| 5. Устойчивость (частично) | сделано: watchdog с backoff, ресинхронизация таймлайнов, непрерывный reference, предел задержки, защита от петель, минидампы. Осталось: уведомления устройств (IMMNotificationClient), малые периоды IAudioClient3, адаптивный ресемплинг reference, суточный прогон |
+| 5. Устойчивость (частично) | сделано: watchdog с backoff, ресинхронизация таймлайнов, непрерывный reference, предел задержки, защита от петель, минидампы, reference необязателен, уведомления об устройствах (IMMNotificationClient). Осталось: малые периоды IAudioClient3, адаптивный ресемплинг reference, суточный прогон, каталог данных в %LOCALAPPDATA% (к инсталлятору) |
 | 6. Второй бэкенд | рецепты speexdsp или rnnoise, стадии, опционально DLL-плагины |
 | 7. Дистрибуция | установщик, attestation-подпись драйвера (или VB-Cable), автозапуск |
 
