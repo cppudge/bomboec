@@ -100,11 +100,12 @@ lead с запасом; иначе эхо не подавляется, а `delay
 | id | Возможности | Ключи |
 |---|---|---|
 | `hpf` | hpf | `cutoff_hz` (80) |
-| `webrtc` | aec, и по флагам hpf/ns/agc | `aec` (true), `hpf` (false), `ns` (false), `ns_level` (moderate: low, moderate, high, very_high), `agc` (false), `filter_length_blocks` (13, 1..60), `delay_num_filters` (5, 1..20) |
+| `webrtc` | aec, и по флагам hpf/ns/agc | `aec` (true), `hpf` (false), `ns` (false; в шаблоне true), `ns_level` (moderate; в шаблоне high: low, moderate, high, very_high), `agc` (false), `filter_length_blocks` (13, 1..60), `delay_num_filters` (5, 1..20) |
 | `limiter` | limiter | `ceiling_db` (-1.0, -60..0), `release_ms` (50, 0.1..10000) |
 
-Шумоподавление уже есть: `ns = true` и `ns_level` в стадии `webrtc` (NS из WebRTC), после правки
-конфига пункт меню «Reload config». Отдельный бэкенд NS (rnnoise) относится к этапу 6.
+Шумоподавление: NS из WebRTC в стадии `webrtc`, в шаблоне включён на уровне high; после правки
+конфига пункт меню «Reload config». Если его не хватает, следующий бэкенд NS (rnnoise) относится
+к этапу 6.
 
 Интерфейс стадии и правила для новых бэкендов: `src/core/stage.h` (новая стадия регистрируется в
 `StageRegistry` по строковому id).
