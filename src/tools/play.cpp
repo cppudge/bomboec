@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <exception>
 #include <numbers>
 #include <string>
 #include <thread>
@@ -23,7 +24,9 @@
 using namespace bomboec;
 namespace ws = bomboec::wasapi;
 
-int main(int argc, char** argv) {
+namespace {
+
+int run(int argc, char** argv) {
     cxxopts::Options opts("bomboec-play", "Play a chirp or WAV into a render endpoint");
     // clang-format off
     opts.add_options()
@@ -34,14 +37,15 @@ int main(int argc, char** argv) {
         ("h,help", "Help");
     // clang-format on
     auto args = opts.parse(argc, argv);
-    if (args.count("help")) {
+    if (args.contains("help")) {
         std::printf("%s\n", opts.help().c_str());
         return 0;
     }
 
-    ws::ComInit com;
+    const ws::ComInit com;
     std::string error;
-    ws::ComPtr<IMMDevice> dev = ws::openDevice(ws::Flow::Render, ws::fromUtf8(args["output"].as<std::string>()), error);
+    const ws::ComPtr<IMMDevice> dev =
+        ws::openDevice(ws::Flow::Render, ws::fromUtf8(args["output"].as<std::string>()), error);
     if (!dev) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 2;
@@ -67,12 +71,12 @@ int main(int argc, char** argv) {
     } else {
         const size_t chirpLen = rate, pause = rate / 2;
         source.assign(chirpLen + pause, 0.0f);
-        const double f0 = 100.0, f1 = 8000.0, T = double(chirpLen) / rate;
-        const double k = std::log(f1 / f0) / T;
+        const double f0 = 100.0, f1 = 8000.0, duration = double(chirpLen) / rate;
+        const double k = std::log(f1 / f0) / duration;
         for (size_t i = 0; i < chirpLen; ++i) {
             const double t = double(i) / rate;
             const double phase = 2.0 * std::numbers::pi * f0 * (std::exp(k * t) - 1.0) / k;
-            const double env = std::min({1.0, t * 100.0, (T - t) * 100.0});
+            const double env = std::min({1.0, t * 100.0, (duration - t) * 100.0});
             source[i] = float(0.8 * env * std::sin(phase));
         }
     }
@@ -84,7 +88,7 @@ int main(int argc, char** argv) {
     ro.channels = 2;
     auto fill = [&](float* buf, uint32_t frames) {
         size_t p = pos.load(std::memory_order_relaxed);
-        for (uint32_t i = 0; i < frames; ++i) {
+        for (size_t i = 0; i < frames; ++i) {
             const float s = source[p] * gain;
             buf[i * 2] = s;
             buf[i * 2 + 1] = s;
@@ -102,4 +106,16 @@ int main(int argc, char** argv) {
     out.stop();
     if (!out.lastError().empty()) std::fprintf(stderr, "render error: %s\n", out.lastError().c_str());
     return 0;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    // Исключения (разбор аргументов cxxopts, std): сообщение вместо abort.
+    try {
+        return run(argc, argv);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "error: %s\n", e.what());
+        return 1;
+    }
 }

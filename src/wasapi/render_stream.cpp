@@ -5,6 +5,7 @@
 #include <mmreg.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace bomboec::wasapi {
@@ -54,7 +55,7 @@ bool RenderStream::open(IMMDevice* device, const Options& options, FillHandler h
     client_->GetBufferSize(&bufferFrames_);
     REFERENCE_TIME defaultPeriod = 100'000, minPeriod = 0;
     client_->GetDevicePeriod(&defaultPeriod, &minPeriod);
-    periodFrames_ = std::max<uint32_t>(1, uint32_t(double(defaultPeriod) * options.sampleRate / 1e7 + 0.5));
+    periodFrames_ = std::max<uint32_t>(1, uint32_t(std::lround(double(defaultPeriod) * options.sampleRate / 1e7)));
     if (options.targetMs == 0) {
         targetFrames_ = bufferFrames_;
     } else {
@@ -114,7 +115,7 @@ void RenderStream::close() {
 std::string RenderStream::lastError() const { return hasError_.load() ? threadError_ : std::string(); }
 
 void RenderStream::threadMain() {
-    ComInit com;
+    const ComInit com;
     DWORD taskIndex = 0;
     HANDLE mmcss = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
     HANDLE waits[2] = {stopEvent_.get(), event_.get()};

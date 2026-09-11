@@ -1,5 +1,6 @@
 #include "core/config.h"
 
+#include <cmath>
 #include <fstream>
 #include <sstream>
 
@@ -20,7 +21,7 @@ bool parseConfig(std::string_view text, AppConfig& out, std::string& error) {
     if (const toml::table* fmt = root["format"].as_table()) {
         cfg.format.sampleRate = uint32_t((*fmt)["sample_rate"].value_or(int64_t(48000)));
         const double frameMs = (*fmt)["frame_ms"].value_or(10.0);
-        cfg.format.frameSamples = uint32_t(cfg.format.sampleRate * frameMs / 1000.0 + 0.5);
+        cfg.format.frameSamples = uint32_t(std::lround(cfg.format.sampleRate * frameMs / 1000.0));
         cfg.format.micChannels = uint32_t((*fmt)["mic_channels"].value_or(int64_t(1)));
         cfg.format.referenceChannels = uint32_t((*fmt)["reference_channels"].value_or(int64_t(2)));
     }
@@ -111,7 +112,7 @@ bool saveConfig(const std::filesystem::path& path, const AppConfig& cfg, std::st
 }
 
 bool loadConfig(const std::filesystem::path& path, AppConfig& out, std::string& error) {
-    std::ifstream in(path, std::ios::binary);
+    const std::ifstream in(path, std::ios::binary);
     if (!in) {
         error = "config: cannot open " + path.string();
         return false;

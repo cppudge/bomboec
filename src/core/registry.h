@@ -23,10 +23,11 @@ public:
         return it == factories_.end() ? nullptr : it->second();
     }
 
-    bool has(std::string_view id) const { return factories_.count(std::string(id)) != 0; }
+    bool has(std::string_view id) const { return factories_.contains(std::string(id)); }
 
     std::vector<std::string> ids() const {
         std::vector<std::string> out;
+        out.reserve(factories_.size());
         for (const auto& [k, _] : factories_) out.push_back(k);
         return out;
     }

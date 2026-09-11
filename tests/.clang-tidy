@@ -1,0 +1,6 @@
+# Тесты: корневой .clang-tidy с одним послаблением.
+InheritParentConfig: true
+
+# Размеры буферов в тестах: маленькие константы вида 2 * 6 и 10 * kPacket, расширение
+# произведения до size_t безопасно.
+Checks: '-bugprone-implicit-widening-of-multiplication-result'

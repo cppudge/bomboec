@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 
@@ -39,13 +40,13 @@ public:
         rate_ = nominalRate;
         tps_ = ticksPerSecond;
         ring_ = ring;
-        thresholdSamples_ = int64_t(gapThresholdMs / 1000.0 * nominalRate + 0.5);
+        thresholdSamples_ = std::llround(gapThresholdMs / 1000.0 * nominalRate);
         timeline_.configure(nominalRate, ticksPerSecond);
         reset();
     }
 
     void reset() {
-        SpinGuard g(lock_);
+        const SpinGuard g(lock_);
         started_.store(false, std::memory_order_release);
         originTicks_ = 0;
         expectedTicks_ = 0;
@@ -62,7 +63,7 @@ public:
         }
 
         const int64_t deltaTicks = ticks - expectedTicks_;
-        const int64_t deltaSamples = int64_t(double(deltaTicks) * rate_ / tps_ + (deltaTicks >= 0 ? 0.5 : -0.5));
+        const int64_t deltaSamples = std::llround(double(deltaTicks) * rate_ / tps_);
         uint32_t skip = 0;
         if (deltaSamples > thresholdSamples_) {
             const uint32_t fill = uint32_t(deltaSamples);
@@ -88,19 +89,19 @@ public:
         // ticks + skip/rate. Индекс берём по позиции записи ring.
         const uint64_t firstIndex = ring_->totalWritten() - n;
         {
-            SpinGuard g(lock_);
-            timeline_.anchor(ticks + int64_t(double(skip) / rate_ * tps_ + 0.5), firstIndex);
+            const SpinGuard g(lock_);
+            timeline_.anchor(ticks + std::llround(double(skip) / rate_ * tps_), firstIndex);
         }
         started_.store(true, std::memory_order_release);
 
-        expectedTicks_ = ticks + int64_t(double(frames) / rate_ * tps_ + 0.5);
+        expectedTicks_ = ticks + std::llround(double(frames) / rate_ * tps_);
     }
 
     // Потокобезопасно относительно push(): читается из потока-consumer.
     bool started() const { return started_.load(std::memory_order_acquire); }
     int64_t originTicks() const { return originTicks_; }
     Timeline timelineSnapshot() const {
-        SpinGuard g(lock_);
+        const SpinGuard g(lock_);
         return timeline_;
     }
     // Только из потока-producer или когда push() не вызывается.
@@ -109,11 +110,13 @@ public:
 
 private:
     struct SpinGuard {
-        explicit SpinGuard(std::atomic_flag& f) : f_(f) {
-            while (f_.test_and_set(std::memory_order_acquire)) {}
+        explicit SpinGuard(std::atomic_flag& f) : flag(f) {
+            while (flag.test_and_set(std::memory_order_acquire)) {}
         }
-        ~SpinGuard() { f_.clear(std::memory_order_release); }
-        std::atomic_flag& f_;
+        ~SpinGuard() { flag.clear(std::memory_order_release); }
+        SpinGuard(const SpinGuard&) = delete;
+        SpinGuard& operator=(const SpinGuard&) = delete;
+        std::atomic_flag& flag;
     };
 
     double rate_ = 48000.0;
@@ -121,7 +124,7 @@ private:
     RingBuffer* ring_ = nullptr;
     int64_t thresholdSamples_ = 120;
     Timeline timeline_;
-    mutable std::atomic_flag lock_ = ATOMIC_FLAG_INIT;
+    mutable std::atomic_flag lock_;
     std::atomic<bool> started_{false};
     int64_t originTicks_ = 0;
     int64_t expectedTicks_ = 0;

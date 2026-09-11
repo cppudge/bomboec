@@ -12,12 +12,15 @@
 
 #include <chrono>
 #include <cstdio>
+#include <exception>
 #include <string>
 #include <thread>
 
 using namespace bomboec;
 
-int main(int argc, char** argv) {
+namespace {
+
+int run(int argc, char** argv) {
     cxxopts::Options opts("bomboec-run", "Realtime AEC engine (console)");
     // clang-format off
     opts.add_options()
@@ -30,22 +33,22 @@ int main(int argc, char** argv) {
         ("h,help", "Help");
     // clang-format on
     auto args = opts.parse(argc, argv);
-    if (args.count("help")) {
+    if (args.contains("help")) {
         std::printf("%s\n", opts.help().c_str());
         return 0;
     }
 
-    wasapi::ComInit com;
+    const wasapi::ComInit com;
     std::string error;
     AppConfig cfg;
     if (!loadConfig(args["config"].as<std::string>(), cfg, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 1;
     }
-    if (args.count("mic")) cfg.engine.micId = args["mic"].as<std::string>();
-    if (args.count("speakers")) cfg.engine.speakersId = args["speakers"].as<std::string>();
-    if (args.count("output")) cfg.engine.outputId = args["output"].as<std::string>();
-    if (args.count("record")) cfg.engine.recordDir = args["record"].as<std::string>();
+    if (args.contains("mic")) cfg.engine.micId = args["mic"].as<std::string>();
+    if (args.contains("speakers")) cfg.engine.speakersId = args["speakers"].as<std::string>();
+    if (args.contains("output")) cfg.engine.outputId = args["output"].as<std::string>();
+    if (args.contains("record")) cfg.engine.recordDir = args["record"].as<std::string>();
 
     Engine engine;
     if (!engine.start(cfg, error)) {
@@ -81,4 +84,16 @@ int main(int argc, char** argv) {
     }
     engine.stop();
     return 0;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    // Исключения (разбор аргументов cxxopts, toml, std): сообщение вместо abort.
+    try {
+        return run(argc, argv);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "error: %s\n", e.what());
+        return 1;
+    }
 }

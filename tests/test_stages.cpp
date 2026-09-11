@@ -16,7 +16,7 @@ namespace {
 
 double rms(std::span<const float> x) {
     double e = 0.0;
-    for (float v : x) e += double(v) * v;
+    for (const float v : x) e += double(v) * v;
     return std::sqrt(e / double(x.size()));
 }
 
@@ -38,7 +38,7 @@ double toneResponse(IStage& stage, const PipelineFormat& fmt, double hz, int fra
 }  // namespace
 
 TEST_CASE("HPF stage attenuates 20 Hz and passes 1 kHz") {
-    PipelineFormat fmt;
+    const PipelineFormat fmt;
     auto hpf = makeHpfStage();
     toml::table cfg;
     cfg.insert("cutoff_hz", 80.0);
@@ -59,7 +59,7 @@ TEST_CASE("HPF stage attenuates 20 Hz and passes 1 kHz") {
 }
 
 TEST_CASE("Limiter stage keeps peaks under the ceiling") {
-    PipelineFormat fmt;
+    const PipelineFormat fmt;
     auto lim = makeLimiterStage();
     toml::table cfg;
     cfg.insert("ceiling_db", -6.0);
@@ -72,7 +72,7 @@ TEST_CASE("Limiter stage keeps peaks under the ceiling") {
     }
     lim->process(mic, nullptr);
     const float ceiling = float(std::pow(10.0, -6.0 / 20.0));
-    for (float v : mic.channel(0)) {
+    for (const float v : mic.channel(0)) {
         CHECK(std::fabs(v) <= ceiling + 1e-6f);
     }
     REQUIRE(lim->stats().gainDb);
@@ -87,7 +87,7 @@ TEST_CASE("Limiter stage keeps peaks under the ceiling") {
 }
 
 TEST_CASE("WebRTC stage cancels a delayed synthetic echo") {
-    PipelineFormat fmt;
+    const PipelineFormat fmt;
     auto stage = makeWebrtcStage();
     toml::table cfg;
     cfg.insert("aec", true);
@@ -127,7 +127,7 @@ TEST_CASE("WebRTC stage cancels a delayed synthetic echo") {
 }
 
 TEST_CASE("WebRTC stage without AEC still needs a feature, works without reference") {
-    PipelineFormat fmt;
+    const PipelineFormat fmt;
     auto stage = makeWebrtcStage();
     toml::table none;
     none.insert("aec", false);

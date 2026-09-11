@@ -64,6 +64,16 @@ Conan работает в домашней папке проекта `.conan2/`:
 git config core.hooksPath .githooks
 ```
 
+Статический анализ задаёт `.clang-tidy`: узкий набор (bugprone, performance, concurrency,
+именование, несколько modernize), причины отключённых проверок записаны в самом файле. Те же
+проверки показывает clangd в редакторе (`.clangd` читает базу компиляции `build/ninja-release`).
+Полная проверка по базе компиляции пресета release:
+
+```powershell
+pwsh scripts/check.ps1        # clang-tidy + clang-format, код выхода 1 при замечаниях
+pwsh scripts/check.ps1 -Fix   # применить исправления clang-tidy и clang-format
+```
+
 ## Структура
 
 ```text
@@ -72,7 +82,7 @@ CMakeLists.txt                корневой проект, подключен�
 CMakePresets.json             пресеты release/debug (configure, build, test, workflow)
 build.ps1                     окружение MSVC + cmake --workflow
 cmake/cmake-conan/            cmake-conan provider (conan install из CMake)
-scripts/                      вспомогательные скрипты (vcvars.ps1)
+scripts/                      vcvars.ps1 (окружение MSVC), check.ps1 (clang-tidy + clang-format)
 conan-recipes/recipes/        локальные рецепты (webrtc-audio-processing, позже speexdsp, rnnoise)
 config/default.toml           конфигурация конвейера по умолчанию
 src/core/                     Frame, RingBuffer, Timeline, PacketAssembler, WAV, IStage, Chain, StageRegistry, config

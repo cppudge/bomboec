@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <exception>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -32,7 +33,7 @@ double dbfs(double rms) { return 20.0 * std::log10(std::max(rms, 1e-9)); }
 
 double frameRms(const Frame& f, uint32_t ch) {
     double e = 0.0;
-    for (float v : f.channel(ch)) e += double(v) * v;
+    for (const float v : f.channel(ch)) e += double(v) * v;
     return std::sqrt(e / f.samples());
 }
 
@@ -60,9 +61,7 @@ std::vector<float> mapChannels(const std::vector<float>& in, uint32_t inCh, uint
     return out;
 }
 
-}  // namespace
-
-int main(int argc, char** argv) {
+int run(int argc, char** argv) {
     cxxopts::Options opts("bomboec-proc", "Offline AEC/NS chain runner");
     // clang-format off
     opts.add_options()
@@ -77,9 +76,9 @@ int main(int argc, char** argv) {
         ("h,help", "Help");
     // clang-format on
     auto args = opts.parse(argc, argv);
-    if (args.count("help") || !args.count("mic") || !args.count("ref") || !args.count("out")) {
+    if (args.contains("help") || !args.contains("mic") || !args.contains("ref") || !args.contains("out")) {
         std::printf("%s\n", opts.help().c_str());
-        return args.count("help") ? 0 : 1;
+        return args.contains("help") ? 0 : 1;
     }
 
     std::string error;
@@ -109,7 +108,7 @@ int main(int argc, char** argv) {
 
     StageRegistry registry;
     registerBuiltinStages(registry);
-    std::unique_ptr<Chain> chain = buildChain(registry, cfg, error);
+    const std::unique_ptr<Chain> chain = buildChain(registry, cfg, error);
     if (!chain || !chain->init(fmt, error)) {
         std::fprintf(stderr, "chain: %s\n", error.c_str());
         return 4;
@@ -129,7 +128,7 @@ int main(int argc, char** argv) {
     const double offsetMs = args["ref-offset-ms"].as<double>();
     const int64_t offsetSamples = int64_t(std::llround(offsetMs / 1000.0 * fmt.sampleRate));
     const double refThresholdDb = args["ref-threshold-db"].as<double>();
-    const bool quiet = args.count("quiet") > 0;
+    const bool quiet = args.contains("quiet");
 
     std::printf("mic %zu frames, ref %zu frames, chain of %zu stages, caps 0x%X, ref offset %+.1f ms\n", micFrames,
                 refFrames, chain->size(), chain->caps(), offsetMs);
@@ -243,4 +242,16 @@ int main(int argc, char** argv) {
                 fmtOpt(st.erlDb, "%.1f").c_str(), fmtOpt(st.erleDb, "%.1f").c_str());
     std::printf("  output: %s\n", args["out"].as<std::string>().c_str());
     return 0;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    // Исключения (разбор аргументов cxxopts, toml, std): сообщение вместо abort.
+    try {
+        return run(argc, argv);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "error: %s\n", e.what());
+        return 1;
+    }
 }

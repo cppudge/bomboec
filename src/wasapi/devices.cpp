@@ -46,7 +46,7 @@ DeviceInfo describeDevice(IMMDevice* device) {
 
 std::vector<DeviceInfo> enumerateDevices(Flow flow, std::string& error) {
     std::vector<DeviceInfo> out;
-    ComPtr<IMMDeviceEnumerator> en = makeEnumerator(error);
+    const ComPtr<IMMDeviceEnumerator> en = makeEnumerator(error);
     if (!en) return out;
 
     std::wstring defaultId;
@@ -56,7 +56,7 @@ std::vector<DeviceInfo> enumerateDevices(Flow flow, std::string& error) {
     }
 
     ComPtr<IMMDeviceCollection> coll;
-    HRESULT hr = en->EnumAudioEndpoints(toFlow(flow), DEVICE_STATE_ACTIVE, &coll);
+    const HRESULT hr = en->EnumAudioEndpoints(toFlow(flow), DEVICE_STATE_ACTIVE, &coll);
     if (FAILED(hr)) {
         error = "EnumAudioEndpoints: " + hresultToString(hr);
         return out;
@@ -75,7 +75,7 @@ std::vector<DeviceInfo> enumerateDevices(Flow flow, std::string& error) {
 
 ComPtr<IMMDevice> openDevice(Flow flow, const std::wstring& id, std::string& error) {
     ComPtr<IMMDevice> dev;
-    ComPtr<IMMDeviceEnumerator> en = makeEnumerator(error);
+    const ComPtr<IMMDeviceEnumerator> en = makeEnumerator(error);
     if (!en) return dev;
     HRESULT hr;
     if (id.empty()) {

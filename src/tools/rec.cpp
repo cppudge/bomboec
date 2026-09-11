@@ -18,7 +18,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
+#include <exception>
 #include <filesystem>
 #include <string>
 #include <thread>
@@ -80,7 +82,7 @@ struct Track {
 
 std::string jsonEscape(const std::string& s) {
     std::string out;
-    for (char c : s) {
+    for (const char c : s) {
         if (c == '"' || c == '\\') out += '\\';
         out += c;
     }
@@ -89,7 +91,7 @@ std::string jsonEscape(const std::string& s) {
 
 void listDevices() {
     std::string error;
-    for (ws::Flow flow : {ws::Flow::Capture, ws::Flow::Render}) {
+    for (const ws::Flow flow : {ws::Flow::Capture, ws::Flow::Render}) {
         std::printf("%s:\n", flow == ws::Flow::Capture ? "Capture" : "Render");
         for (const ws::DeviceInfo& d : ws::enumerateDevices(flow, error)) {
             std::printf("  %s %s\n      id: %s\n", d.isDefault ? "*" : " ", ws::toUtf8(d.name).c_str(),
@@ -99,9 +101,7 @@ void listDevices() {
     }
 }
 
-}  // namespace
-
-int main(int argc, char** argv) {
+int run(int argc, char** argv) {
     cxxopts::Options opts("bomboec-rec", "Synchronized mic + loopback recorder");
     // clang-format off
     opts.add_options()
@@ -115,17 +115,17 @@ int main(int argc, char** argv) {
         ("h,help", "Help");
     // clang-format on
     auto args = opts.parse(argc, argv);
-    if (args.count("help")) {
+    if (args.contains("help")) {
         std::printf("%s\n", opts.help().c_str());
         return 0;
     }
 
-    ws::ComInit com;
-    if (args.count("list")) {
+    const ws::ComInit com;
+    if (args.contains("list")) {
         listDevices();
         return 0;
     }
-    if (!args.count("out")) {
+    if (!args.contains("out")) {
         std::fprintf(stderr, "--out is required\n%s\n", opts.help().c_str());
         return 1;
     }
@@ -136,13 +136,13 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(outDir, ec);
 
     std::string error;
-    ws::ComPtr<IMMDevice> micDev =
+    const ws::ComPtr<IMMDevice> micDev =
         ws::openDevice(ws::Flow::Capture, ws::fromUtf8(args["mic"].as<std::string>()), error);
     if (!micDev) {
         std::fprintf(stderr, "mic: %s\n", error.c_str());
         return 2;
     }
-    ws::ComPtr<IMMDevice> spkDev =
+    const ws::ComPtr<IMMDevice> spkDev =
         ws::openDevice(ws::Flow::Render, ws::fromUtf8(args["speakers"].as<std::string>()), error);
     if (!spkDev) {
         std::fprintf(stderr, "speakers: %s\n", error.c_str());
@@ -162,7 +162,7 @@ int main(int argc, char** argv) {
     ws::CaptureStream micStream, refStream;
     ws::CaptureStream::Options micOpt;
     micOpt.channels = 1;
-    micOpt.raw = !args.count("no-raw");
+    micOpt.raw = !args.contains("no-raw");
     ws::CaptureStream::Options refOpt;
     refOpt.channels = 2;
     refOpt.loopback = true;
@@ -177,8 +177,8 @@ int main(int argc, char** argv) {
 
     ws::RenderStream keepalive;
     bool keepaliveOn = false;
-    if (!args.count("no-keepalive")) {
-        ws::RenderStream::Options ro;
+    if (!args.contains("no-keepalive")) {
+        const ws::RenderStream::Options ro;
         if (keepalive.open(spkDev.Get(), ro, nullptr, error) && keepalive.start(error)) {
             keepaliveOn = true;
         } else {
@@ -210,7 +210,7 @@ int main(int argc, char** argv) {
     }
     const int64_t t0 = std::max(mic.assembler.originTicks(), ref.assembler.originTicks());
     for (Track* t : {&mic, &ref}) {
-        t->skip = uint64_t(double(t0 - t->assembler.originTicks()) * kRate / kTps + 0.5);
+        t->skip = uint64_t(std::llround(double(t0 - t->assembler.originTicks()) * kRate / kTps));
         t->initialSkip = t->skip;
     }
     std::printf("t0 aligned: mic skips %llu samples, ref skips %llu samples\n", (unsigned long long)mic.skip,
@@ -280,4 +280,16 @@ int main(int argc, char** argv) {
     std::printf("done: mic %llu frames, ref %llu frames -> %s\n", (unsigned long long)mic.written,
                 (unsigned long long)ref.written, outDir.string().c_str());
     return 0;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+    // Исключения (разбор аргументов cxxopts, std): сообщение вместо abort.
+    try {
+        return run(argc, argv);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "error: %s\n", e.what());
+        return 1;
+    }
 }

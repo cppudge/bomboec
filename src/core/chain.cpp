@@ -22,7 +22,7 @@ bool Chain::init(const PipelineFormat& fmt, std::string& error) {
                     " Hz / " + std::to_string(fmt.frameSamples);
             return false;
         }
-        for (Cap c : {Cap::Hpf, Cap::Aec, Cap::Ns, Cap::Agc, Cap::Limiter}) {
+        for (const Cap c : {Cap::Hpf, Cap::Aec, Cap::Ns, Cap::Agc, Cap::Limiter}) {
             if (hasCap(info.caps, c) && hasCap(caps_, c)) {
                 error = "capability '" + std::string(capName(c)) + "' declared twice (stage '" + info.id + "')";
                 return false;
@@ -35,13 +35,13 @@ bool Chain::init(const PipelineFormat& fmt, std::string& error) {
 }
 
 void Chain::process(Frame& mic, const Frame* reference) {
-    for (Entry& e : entries_) {
+    for (const Entry& e : entries_) {
         e.stage->process(mic, reference);
     }
 }
 
 void Chain::reset() {
-    for (Entry& e : entries_) e.stage->reset();
+    for (const Entry& e : entries_) e.stage->reset();
 }
 
 StageStats Chain::stats() const {

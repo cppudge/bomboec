@@ -31,7 +31,7 @@ public:
         for (float& x : mic.channel(0)) x *= gain_;
     }
 
-    void reset() override { resets_++; }
+    void reset() override { resets++; }
 
     StageStats stats() const override {
         StageStats s;
@@ -40,7 +40,7 @@ public:
         return s;
     }
 
-    int resets_ = 0;
+    int resets = 0;
 
 private:
     std::string id_;
@@ -64,13 +64,13 @@ TEST_CASE("Chain runs stages in order and aggregates caps/latency/stats") {
     chain.add(std::make_unique<GainStage>("b", capBit(Cap::Limiter), 2, &log), p2);
 
     std::string error;
-    PipelineFormat fmt;
+    const PipelineFormat fmt;
     REQUIRE(chain.init(fmt, error));
     CHECK(chain.caps() == (capBit(Cap::Aec) | capBit(Cap::Limiter)));
     CHECK(chain.latencyFrames() == 3);
 
     Frame mic(1, fmt.frameSamples);
-    Frame ref(2, fmt.frameSamples);
+    const Frame ref(2, fmt.frameSamples);
     mic.channel(0)[0] = 1.0f;
     chain.process(mic, &ref);
     CHECK(mic.channel(0)[0] == 6.0f);
@@ -86,7 +86,7 @@ TEST_CASE("Chain runs stages in order and aggregates caps/latency/stats") {
     CHECK_FALSE(s.delayMs);
 
     chain.reset();
-    CHECK(static_cast<GainStage&>(chain.stage(0)).resets_ == 1);
+    CHECK(static_cast<GainStage&>(chain.stage(0)).resets == 1);
 }
 
 TEST_CASE("Chain rejects duplicate capabilities and failing init") {

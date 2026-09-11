@@ -101,7 +101,7 @@ bool CaptureStream::open(IMMDevice* device, const Options& options, PacketHandle
                 }
             }
         }
-        WAVEFORMATEXTENSIBLE want = makeFloatFormat(options.sampleRate, a.channels);
+        const WAVEFORMATEXTENSIBLE want = makeFloatFormat(options.sampleRate, a.channels);
         const DWORD flags = baseFlags | (a.event ? AUDCLNT_STREAMFLAGS_EVENTCALLBACK : 0);
         hr = client->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, duration, 0, &want.Format, nullptr);
         if (SUCCEEDED(hr)) {
@@ -220,7 +220,7 @@ void CaptureStream::deliver(const BYTE* data, uint32_t frames, DWORD flags, uint
 }
 
 void CaptureStream::threadMain() {
-    ComInit com;
+    const ComInit com;
     DWORD taskIndex = 0;
     HANDLE mmcss = AvSetMmThreadCharacteristicsW(L"Pro Audio", &taskIndex);
 

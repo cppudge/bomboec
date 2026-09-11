@@ -90,7 +90,7 @@ struct App {
     bool wantRunning = true;
 };
 
-App* g_app = nullptr;
+App* gApp = nullptr;
 
 std::filesystem::path exeDir() {
     wchar_t buf[MAX_PATH];
@@ -244,7 +244,7 @@ std::string statusText(App& app) {
 }
 
 LRESULT CALLBACK StatusWndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
-    App& app = *g_app;
+    App& app = *gApp;
     switch (msg) {
         case WM_SIZE:
             if (app.statusEdit) MoveWindow(app.statusEdit, 0, 0, LOWORD(lp), HIWORD(lp), TRUE);
@@ -258,6 +258,7 @@ LRESULT CALLBACK StatusWndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             app.statusWnd = nullptr;
             app.statusEdit = nullptr;
             return 0;
+        default: break;
     }
     return DefWindowProcW(h, msg, wp, lp);
 }
@@ -368,7 +369,7 @@ void handleCommand(App& app, UINT id) {
 }
 
 LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
-    App& app = *g_app;
+    App& app = *gApp;
     switch (msg) {
         case WM_TRAY:
             if (LOWORD(lp) == WM_RBUTTONUP || LOWORD(lp) == WM_CONTEXTMENU) showMenu(app);
@@ -395,6 +396,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             logLine(app, "exit");
             PostQuitMessage(0);
             return 0;
+        default: break;
     }
     return DefWindowProcW(h, msg, wp, lp);
 }
@@ -411,7 +413,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
 
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     App app;
-    g_app = &app;
+    gApp = &app;
     app.configPath = exeDir() / "bomboec.toml";
     app.logPath = exeDir() / "bomboec.log";
     logLine(app, "start");
@@ -425,7 +427,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     sc.lpfnWndProc = StatusWndProc;
     sc.hInstance = hInst;
     sc.lpszClassName = L"BomboecStatus";
-    sc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    sc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
     sc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     RegisterClassW(&sc);
 
@@ -459,7 +461,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
-    g_app = nullptr;
+    gApp = nullptr;
     CoUninitialize();
     CloseHandle(mutex);
     return 0;

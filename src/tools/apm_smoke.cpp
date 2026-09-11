@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <exception>
 #include <memory>
 #include <random>
 #include <vector>
@@ -23,9 +24,7 @@ constexpr int kRenderChannels = 2;
 constexpr int kEchoDelaySamples = 2400;  // 50 ms
 constexpr int kSeconds = 5;
 
-}  // namespace
-
-int main() {
+int run() {
     // Явный конфиг AEC3 через фабрику: так приложение сможет менять длину
     // фильтра, диапазон поиска задержки и т.п. без внутренних заголовков.
     webrtc::EchoCanceller3Config aec3;
@@ -35,7 +34,7 @@ int main() {
         std::fputs("EchoCanceller3Config was adjusted during validation", stderr);
         std::fputc('\n', stderr);
     }
-    webrtc::scoped_refptr<webrtc::AudioProcessing> apm =
+    const webrtc::scoped_refptr<webrtc::AudioProcessing> apm =
         webrtc::AudioProcessingBuilder()
             .SetEchoControlFactory(std::make_unique<webrtc::EchoCanceller3Factory>(aec3))
             .Create();
@@ -116,4 +115,15 @@ int main() {
                 opt(st.echo_return_loss), opt(st.echo_return_loss_enhancement), opt(st.residual_echo_likelihood));
 
     return attenuationDb > 15.0 ? 0 : 4;
+}
+
+}  // namespace
+
+int main() {
+    try {
+        return run();
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "error: %s\n", e.what());
+        return 1;
+    }
 }

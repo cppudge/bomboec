@@ -1,0 +1,69 @@
+# Набор проверок clang-tidy проекта. Его же читает clangd (.clangd) для подсказок в редакторе,
+# полная проверка по базе компиляции build/ninja-release: pwsh scripts/check.ps1.
+#
+# Набор намеренно узкий: ошибкоопасные конструкции, производительность, многопоточность, единое
+# именование и несколько дешёвых модернизаций. Широкие readability-* и cppcoreguidelines-* на этом
+# коде в основном шум (magic numbers в DSP, длина имён, trailing return type, C-style cast).
+#
+# Отключено намеренно:
+#   bugprone-easily-swappable-parameters: срабатывает на любую пару (channels, frames).
+#   bugprone-narrowing-conversions: DSP постоянно переходит между float, double и uint32_t.
+#   bugprone-random-generator-seed: тестовые сигналы строятся с фиксированным seed ради
+#     воспроизводимости.
+#   performance-enum-size: перечисления не хранятся массивами.
+#   performance-inefficient-string-concatenation: срабатывает только на сборку сообщений об ошибках.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-random-generator-seed,
+  performance-*,
+  -performance-enum-size,
+  -performance-inefficient-string-concatenation,
+  concurrency-*,
+  cppcoreguidelines-special-member-functions,
+  misc-const-correctness,
+  modernize-make-unique,
+  modernize-use-emplace,
+  modernize-use-equals-default,
+  modernize-use-equals-delete,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-scoped-lock,
+  modernize-use-using,
+  readability-container-contains,
+  readability-identifier-naming,
+  readability-misleading-indentation,
+  readability-redundant-*
+
+CheckOptions:
+  # Класс с удалённым копированием не обязан объявлять перемещение: оно и так не генерируется.
+  cppcoreguidelines-special-member-functions.AllowMissingMoveFunctionsWhenCopyIsDeleted: true
+  # Интерфейсы вроде IStage: только virtual ~IStage() = default.
+  cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
+  # const для значений и ссылок; константность указуемого (HANDLE waits[2], Track*) не требуем.
+  misc-const-correctness.AnalyzePointers: false
+  # Именование, которым код уже написан.
+  readability-identifier-naming.NamespaceCase: lower_case
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.EnumConstantCase: CamelCase
+  readability-identifier-naming.FunctionCase: camelBack
+  # Оконные процедуры Win32 названы по соглашению Windows.
+  readability-identifier-naming.FunctionIgnoredRegexp: '^(Status)?WndProc$'
+  readability-identifier-naming.MethodCase: camelBack
+  readability-identifier-naming.ParameterCase: camelBack
+  readability-identifier-naming.VariableCase: camelBack
+  readability-identifier-naming.PublicMemberCase: camelBack
+  readability-identifier-naming.PrivateMemberCase: camelBack
+  readability-identifier-naming.PrivateMemberSuffix: _
+  readability-identifier-naming.ConstexprVariableCase: CamelCase
+  readability-identifier-naming.ConstexprVariablePrefix: k
+  # Идентификаторы оконных сообщений и команд меню, как WM_*/ID_* в Windows SDK.
+  readability-identifier-naming.ConstexprVariableIgnoredRegexp: '^(WM|ID)_[A-Z0-9_]+$'
+
+# Свои заголовки проверяются, когда их включает проверяемый файл. Заголовки зависимостей
+# приходят через /external:I и считаются системными.
+HeaderFilterRegex: '.*[\\/](src|tests)[\\/].*'

@@ -1,0 +1,13 @@
+# clangd (в VS Code: расширение llvm-vs-code-extensions.vscode-clangd) берёт флаги из базы
+# компиляции пресета release: сначала .\build.ps1 или cmake --preset release. Новый .cpp в
+# CMakeLists.txt требует повторной настройки. Проверки clang-tidy clangd читает из .clang-tidy.
+CompileFlags:
+  CompilationDatabase: build/ninja-release
+
+Index:
+  # Фоновый индекс всего проекта (кэш в .cache/clangd) для перехода к определениям и поиска ссылок.
+  Background: Build
+
+Diagnostics:
+  # Заголовки Windows SDK дают много ложных "unused include".
+  UnusedIncludes: None

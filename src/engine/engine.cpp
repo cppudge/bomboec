@@ -37,11 +37,11 @@ bool Engine::start(const AppConfig& cfg, std::string& error) {
     if (!chain_ || !chain_->init(fmt_, error)) return false;
 
     namespace ws = wasapi;
-    ws::ComPtr<IMMDevice> micDev = ws::openDevice(ws::Flow::Capture, ws::fromUtf8(settings_.micId), error);
+    const ws::ComPtr<IMMDevice> micDev = ws::openDevice(ws::Flow::Capture, ws::fromUtf8(settings_.micId), error);
     if (!micDev) return false;
-    ws::ComPtr<IMMDevice> spkDev = ws::openDevice(ws::Flow::Render, ws::fromUtf8(settings_.speakersId), error);
+    const ws::ComPtr<IMMDevice> spkDev = ws::openDevice(ws::Flow::Render, ws::fromUtf8(settings_.speakersId), error);
     if (!spkDev) return false;
-    ws::ComPtr<IMMDevice> outDev = ws::openDevice(ws::Flow::Render, ws::fromUtf8(settings_.outputId), error);
+    const ws::ComPtr<IMMDevice> outDev = ws::openDevice(ws::Flow::Render, ws::fromUtf8(settings_.outputId), error);
     if (!outDev) return false;
     const ws::DeviceInfo spkInfo = ws::describeDevice(spkDev.Get());
     const ws::DeviceInfo outInfo = ws::describeDevice(outDev.Get());
@@ -51,7 +51,7 @@ bool Engine::start(const AppConfig& cfg, std::string& error) {
         return false;
     }
     {
-        std::lock_guard<std::mutex> g(infoMutex_);
+        const std::scoped_lock g(infoMutex_);
         info_ = {};
         info_.micName = ws::toUtf8(ws::describeDevice(micDev.Get()).name);
         info_.speakersName = ws::toUtf8(spkInfo.name);
@@ -67,8 +67,8 @@ bool Engine::start(const AppConfig& cfg, std::string& error) {
     refAsm_.configure(rate, kTps, &refRing_);
     micBuf_.assign(size_t(fmt_.frameSamples) * fmt_.micChannels, 0.0f);
     refBuf_.assign(size_t(fmt_.frameSamples) * fmt_.referenceChannels, 0.0f);
-    outBuf_.assign(size_t(fmt_.frameSamples + kMaxStretch) * settings_.outputChannels, 0.0f);
-    stretchBuf_.assign(size_t(fmt_.frameSamples + kMaxStretch), 0.0f);
+    outBuf_.assign((size_t(fmt_.frameSamples) + kMaxStretch) * settings_.outputChannels, 0.0f);
+    stretchBuf_.assign(size_t(fmt_.frameSamples) + kMaxStretch, 0.0f);
     micFrame_.resize(fmt_.micChannels, fmt_.frameSamples);
     refFrame_.resize(fmt_.referenceChannels, fmt_.frameSamples);
     leadTicks_ = int64_t(settings_.referenceLeadMs) * 10'000;
@@ -114,7 +114,7 @@ bool Engine::start(const AppConfig& cfg, std::string& error) {
         return false;
     }
     {
-        std::lock_guard<std::mutex> g(infoMutex_);
+        const std::scoped_lock g(infoMutex_);
         info_.micRaw = micStream_.rawApplied();
         info_.outRenderMs = output_.targetFrames() * 1000 / rate;
     }
@@ -171,7 +171,7 @@ void Engine::processAvailable() {
             const Timeline rt = refAsm_.timelineSnapshot();
             const int64_t t = mt.ticksAt(double(micIndex)) - leadTicks_;
             const double ri = rt.sampleAt(t);
-            const int64_t refIndex = ri > 0 ? int64_t(ri + 0.5) : 0;
+            const int64_t refIndex = ri > 0 ? std::llround(ri) : 0;
             const RingBuffer::ReadAtResult r = refRing_.readAt(uint64_t(refIndex), refBuf_.data(), frame);
             haveRef = (r == RingBuffer::ReadAtResult::Ok);
             // Отбрасываем историю старше refKeepFrames_ позади точки чтения.
@@ -255,7 +255,7 @@ void Engine::fillOutput(float* interleaved, uint32_t frames) {
 EngineStatus Engine::status() const {
     EngineStatus s;
     {
-        std::lock_guard<std::mutex> g(infoMutex_);
+        const std::scoped_lock g(infoMutex_);
         s = info_;
     }
     s.running = running_.load();

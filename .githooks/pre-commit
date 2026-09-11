@@ -22,6 +22,6 @@ for f in $files; do
     fi
 done
 if [ $fail -ne 0 ]; then
-    echo "pre-commit: run clang-format -i on these files" >&2
+    echo "pre-commit: run clang-format -i on these files (or pwsh scripts/check.ps1 -Fix)" >&2
 fi
 exit $fail

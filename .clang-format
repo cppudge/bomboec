@@ -9,6 +9,8 @@ AccessModifierOffset: -4
 IndentCaseLabels: true
 PointerAlignment: Left
 DerivePointerAlignment: false
+# const слева от типа, как пишет код; исправления misc-const-correctness ставят его справа.
+QualifierAlignment: Left
 SpacesBeforeTrailingComments: 2
 AllowShortIfStatementsOnASingleLine: AllIfsAndElse
 AllowShortLoopsOnASingleLine: true
