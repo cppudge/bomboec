@@ -9,6 +9,7 @@
 // (переустановка драйвера кабеля), устройство ищется по имени.
 
 #include "core/config.h"
+#include "core/utf8.h"
 #include "engine/engine.h"
 #include "wasapi/com_util.h"
 #include "wasapi/devices.h"
@@ -92,7 +93,7 @@ bool loadOrCreateConfig(App& app, std::string& error) {
     if (!std::filesystem::exists(app.configPath)) {
         std::ofstream out(app.configPath, std::ios::binary);
         out << defaultConfigToml();
-        logLine(app, "config created: " + app.configPath.string());
+        logLine(app, "config created: " + pathToUtf8(app.configPath));
     }
     return loadConfig(app.configPath, app.cfg, error);
 }
@@ -176,7 +177,7 @@ std::string statusText(App& app) {
             buf, sizeof(buf),
             "stopped\r\n\r\n%s\r\n\r\nПравый клик по иконке в трее: выбор микрофона, колонок и выхода, старт.\r\n"
             "Конфиг: %s\r\nЛог: %s",
-            app.lastError.c_str(), app.configPath.string().c_str(), app.logPath.string().c_str());
+            app.lastError.c_str(), pathToUtf8(app.configPath).c_str(), pathToUtf8(app.logPath).c_str());
         return buf;
     }
     auto opt = [](const std::optional<double>& v, const char* unit) {

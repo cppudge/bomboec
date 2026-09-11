@@ -10,6 +10,8 @@ add_executable(bomboec_tests
     test_stages.cpp
     test_fill_controller.cpp
     test_wasapi_streams.cpp
+    test_utf8.cpp
+    "${BOMBOEC_MANIFEST}"
 )
 target_link_libraries(bomboec_tests PRIVATE
     bomboec::options bomboec::core bomboec::stages bomboec::wasapi Catch2::Catch2WithMain

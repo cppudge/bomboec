@@ -13,6 +13,7 @@ add_library(bomboec_core STATIC
     chain.cpp
     wav.h
     wav.cpp
+    utf8.h
 )
 add_library(bomboec::core ALIAS bomboec_core)
 target_include_directories(bomboec_core PUBLIC ${PROJECT_SOURCE_DIR}/src)

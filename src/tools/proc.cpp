@@ -11,8 +11,10 @@
 
 #include "core/chain.h"
 #include "core/config.h"
+#include "core/utf8.h"
 #include "core/wav.h"
 #include "stages/builtin_stages.h"
+#include "tools/console.h"
 
 #include <cxxopts.hpp>
 
@@ -83,7 +85,7 @@ int run(int argc, char** argv) {
 
     std::string error;
     AppConfig cfg;
-    if (!loadConfig(args["config"].as<std::string>(), cfg, error)) {
+    if (!loadConfig(pathFromUtf8(args["config"].as<std::string>()), cfg, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 2;
     }
@@ -91,8 +93,8 @@ int run(int argc, char** argv) {
 
     std::vector<float> micData, refData;
     uint32_t micCh = 0, micRate = 0, refCh = 0, refRate = 0;
-    if (!readWavFile(args["mic"].as<std::string>(), micData, micCh, micRate, error) ||
-        !readWavFile(args["ref"].as<std::string>(), refData, refCh, refRate, error)) {
+    if (!readWavFile(pathFromUtf8(args["mic"].as<std::string>()), micData, micCh, micRate, error) ||
+        !readWavFile(pathFromUtf8(args["ref"].as<std::string>()), refData, refCh, refRate, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 3;
     }
@@ -115,13 +117,13 @@ int run(int argc, char** argv) {
     }
 
     WavWriter writer;
-    if (!writer.open(args["out"].as<std::string>(), fmt.micChannels, fmt.sampleRate, error)) {
+    if (!writer.open(pathFromUtf8(args["out"].as<std::string>()), fmt.micChannels, fmt.sampleRate, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 5;
     }
     std::FILE* csv = nullptr;
     if (!args["csv"].as<std::string>().empty()) {
-        _wfopen_s(&csv, std::filesystem::path(args["csv"].as<std::string>()).wstring().c_str(), L"wb");
+        _wfopen_s(&csv, pathFromUtf8(args["csv"].as<std::string>()).wstring().c_str(), L"wb");
         if (csv) std::fprintf(csv, "t_s,mic_dbfs,ref_dbfs,out_dbfs,delay_ms,erl_db,erle_db,residual_echo\n");
     }
 
@@ -247,6 +249,7 @@ int run(int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    bomboec::tools::useUtf8Console();
     // Исключения (разбор аргументов cxxopts, toml, std): сообщение вместо abort.
     try {
         return run(argc, argv);

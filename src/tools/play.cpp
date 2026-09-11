@@ -4,7 +4,9 @@
 //
 // Используется для проверки virtual cable и калибровки задержки.
 
+#include "core/utf8.h"
 #include "core/wav.h"
+#include "tools/console.h"
 #include "wasapi/com_util.h"
 #include "wasapi/devices.h"
 #include "wasapi/render_stream.h"
@@ -58,7 +60,7 @@ int run(int argc, char** argv) {
     if (!args["wav"].as<std::string>().empty()) {
         std::vector<float> data;
         uint32_t ch = 0, r = 0;
-        if (!readWavFile(args["wav"].as<std::string>(), data, ch, r, error) || r != rate) {
+        if (!readWavFile(pathFromUtf8(args["wav"].as<std::string>()), data, ch, r, error) || r != rate) {
             std::fprintf(stderr, "%s (need 48 kHz)\n", error.c_str());
             return 3;
         }
@@ -111,6 +113,7 @@ int run(int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    bomboec::tools::useUtf8Console();
     // Исключения (разбор аргументов cxxopts, std): сообщение вместо abort.
     try {
         return run(argc, argv);

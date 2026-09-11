@@ -5,7 +5,9 @@
 //
 // Идентификаторы из аргументов имеют приоритет над [devices] конфига.
 
+#include "core/utf8.h"
 #include "engine/engine.h"
+#include "tools/console.h"
 #include "wasapi/com_util.h"
 
 #include <cxxopts.hpp>
@@ -41,7 +43,7 @@ int run(int argc, char** argv) {
     const wasapi::ComInit com;
     std::string error;
     AppConfig cfg;
-    if (!loadConfig(args["config"].as<std::string>(), cfg, error)) {
+    if (!loadConfig(pathFromUtf8(args["config"].as<std::string>()), cfg, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 1;
     }
@@ -89,6 +91,7 @@ int run(int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    bomboec::tools::useUtf8Console();
     // Исключения (разбор аргументов cxxopts, toml, std): сообщение вместо abort.
     try {
         return run(argc, argv);

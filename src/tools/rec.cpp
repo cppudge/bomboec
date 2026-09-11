@@ -9,7 +9,9 @@
 
 #include "core/packet_assembler.h"
 #include "core/ring_buffer.h"
+#include "core/utf8.h"
 #include "core/wav.h"
+#include "tools/console.h"
 #include "wasapi/capture_stream.h"
 #include "wasapi/devices.h"
 #include "wasapi/render_stream.h"
@@ -130,7 +132,7 @@ int run(int argc, char** argv) {
         return 1;
     }
 
-    const std::filesystem::path outDir = args["out"].as<std::string>();
+    const std::filesystem::path outDir = pathFromUtf8(args["out"].as<std::string>());
     const double seconds = args["seconds"].as<double>();
     std::error_code ec;
     std::filesystem::create_directories(outDir, ec);
@@ -278,13 +280,14 @@ int run(int argc, char** argv) {
     }
 
     std::printf("done: mic %llu frames, ref %llu frames -> %s\n", (unsigned long long)mic.written,
-                (unsigned long long)ref.written, outDir.string().c_str());
+                (unsigned long long)ref.written, pathToUtf8(outDir).c_str());
     return 0;
 }
 
 }  // namespace
 
 int main(int argc, char** argv) {
+    bomboec::tools::useUtf8Console();
     // Исключения (разбор аргументов cxxopts, std): сообщение вместо abort.
     try {
         return run(argc, argv);

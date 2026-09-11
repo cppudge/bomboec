@@ -1,5 +1,6 @@
 #include "engine/engine.h"
 
+#include "core/utf8.h"
 #include "stages/builtin_stages.h"
 #include "wasapi/devices.h"
 
@@ -77,9 +78,9 @@ bool Engine::start(const AppConfig& cfg, std::string& error) {
 
     recording_ = false;
     if (!settings_.recordDir.empty()) {
+        const std::filesystem::path dir = pathFromUtf8(settings_.recordDir);
         std::error_code ec;
-        std::filesystem::create_directories(settings_.recordDir, ec);
-        const std::filesystem::path dir = settings_.recordDir;
+        std::filesystem::create_directories(dir, ec);
         recording_ = recMic_.open(dir / "mic_raw.wav", fmt_.micChannels, rate, error) &&
                      recRef_.open(dir / "ref.wav", fmt_.referenceChannels, rate, error) &&
                      recOut_.open(dir / "out.wav", fmt_.micChannels, rate, error);

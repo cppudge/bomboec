@@ -1,5 +1,7 @@
 #include "core/config.h"
 
+#include "core/utf8.h"
+
 #include <cmath>
 #include <fstream>
 #include <sstream>
@@ -104,7 +106,7 @@ bool saveConfig(const std::filesystem::path& path, const AppConfig& cfg, std::st
 
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     if (!out) {
-        error = "config: cannot write " + path.string();
+        error = "config: cannot write " + pathToUtf8(path);
         return false;
     }
     out << root << "\n";
@@ -114,7 +116,7 @@ bool saveConfig(const std::filesystem::path& path, const AppConfig& cfg, std::st
 bool loadConfig(const std::filesystem::path& path, AppConfig& out, std::string& error) {
     const std::ifstream in(path, std::ios::binary);
     if (!in) {
-        error = "config: cannot open " + path.string();
+        error = "config: cannot open " + pathToUtf8(path);
         return false;
     }
     std::stringstream ss;

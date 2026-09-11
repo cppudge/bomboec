@@ -49,6 +49,8 @@ if(MSVC)
         "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<BOOL:${BOMBOEC_WERROR}>>:/WX>")
     target_compile_definitions(bomboec_options INTERFACE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 endif()
+# Манифест для каждого add_executable: кодовая страница процесса UTF-8 (см. сам файл).
+set(BOMBOEC_MANIFEST "${PROJECT_SOURCE_DIR}/cmake/utf8.manifest")
 
 find_package(webrtc-audio-processing REQUIRED)
 find_package(dr_libs REQUIRED)

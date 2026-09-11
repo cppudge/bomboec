@@ -1,5 +1,7 @@
 #include "core/wav.h"
 
+#include "core/utf8.h"
+
 #define DR_WAV_IMPLEMENTATION
 #define DR_WAV_NO_STDIO
 #include <dr_wav.h>
@@ -46,7 +48,7 @@ bool WavWriter::open(const std::filesystem::path& path, uint32_t channels, uint3
     close();
     impl_->file = openFile(path, L"wb");
     if (!impl_->file) {
-        error = "cannot create " + path.string();
+        error = "cannot create " + pathToUtf8(path);
         return false;
     }
     drwav_data_format fmt{};
@@ -58,7 +60,7 @@ bool WavWriter::open(const std::filesystem::path& path, uint32_t channels, uint3
     if (!drwav_init_write(&impl_->wav, &fmt, writeCb, seekCb, impl_->file, nullptr)) {
         std::fclose(impl_->file);
         impl_->file = nullptr;
-        error = "drwav_init_write failed for " + path.string();
+        error = "drwav_init_write failed for " + pathToUtf8(path);
         return false;
     }
     impl_->open = true;
@@ -99,13 +101,13 @@ bool WavReader::open(const std::filesystem::path& path, std::string& error) {
     close();
     impl_->file = openFile(path, L"rb");
     if (!impl_->file) {
-        error = "cannot open " + path.string();
+        error = "cannot open " + pathToUtf8(path);
         return false;
     }
     if (!drwav_init(&impl_->wav, readCb, seekCb, impl_->file, nullptr)) {
         std::fclose(impl_->file);
         impl_->file = nullptr;
-        error = "not a WAV file: " + path.string();
+        error = "not a WAV file: " + pathToUtf8(path);
         return false;
     }
     impl_->open = true;
