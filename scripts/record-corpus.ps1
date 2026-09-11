@@ -1,6 +1,6 @@
 # Запись корпуса эталонов для регрессии (tests/corpus/corpus.toml): пять сценариев подряд,
 # каждый через bomboec-rec (микрофон raw + loopback колонок), музыка через bomboec-play.
-#   pwsh scripts/record-corpus.ps1                      # устройства из bomboec.state.toml / по умолчанию
+#   pwsh scripts/record-corpus.ps1                      # устройства из bomboec.toml / bomboec.state.toml
 #   pwsh scripts/record-corpus.ps1 -Mic "<id>" -Speakers "<id>" -Music song.wav -Only music,speech
 # Без -Music в колонки идёт полосовой шум 100-6000 Hz (bomboec-play --noise). Перед каждым
 # сценарием скрипт говорит, что делать, и ждёт Enter. Результат: recordings/corpus/<name>/.
@@ -19,15 +19,30 @@ $rec = Join-Path $Bin "bomboec-rec.exe"
 $play = Join-Path $Bin "bomboec-play.exe"
 if (-not (Test-Path $rec)) { throw "$rec not found: build first" }
 
-# Устройства, выбранные в меню трея, если явно не заданы.
-$state = Join-Path $Bin "bomboec.state.toml"
-if (-not $Mic -and (Test-Path $state)) {
-    $m = Select-String -Path $state -Pattern '^mic\s*=\s*[''"](.+)[''"]' | Select-Object -First 1
-    if ($m) { $Mic = $m.Matches[0].Groups[1].Value }
+# Устройства движка, если явно не заданы: bomboec.state.toml (выбор в меню) перекрывает
+# [devices] из bomboec.toml. Микрофон по умолчанию Windows не годится: после установки
+# драйвера это микрофон кабеля, который без bomboec.exe молчит.
+function Read-DeviceId([string]$file, [string]$key) {
+    if (-not (Test-Path $file)) { return "" }
+    $m = Select-String -Path $file -Pattern "^$key\s*=\s*['`"](.+)['`"]" | Select-Object -First 1
+    if ($m) { return $m.Matches[0].Groups[1].Value }
+    return ""
 }
-if (-not $Speakers -and (Test-Path $state)) {
-    $m = Select-String -Path $state -Pattern '^speakers\s*=\s*[''"](.+)[''"]' | Select-Object -First 1
-    if ($m) { $Speakers = $m.Matches[0].Groups[1].Value }
+foreach ($file in @((Join-Path $Bin "bomboec.toml"), (Join-Path $Bin "bomboec.state.toml"))) {
+    $id = Read-DeviceId $file "mic"
+    if ($id) { $Mic = $id }
+    $id = Read-DeviceId $file "speakers"
+    if ($id) { $Speakers = $id }
+}
+if ($PSBoundParameters.ContainsKey("Mic")) { $Mic = $PSBoundParameters["Mic"] }
+if ($PSBoundParameters.ContainsKey("Speakers")) { $Speakers = $PSBoundParameters["Speakers"] }
+$devices = & $rec --list
+$micLine = if ($Mic) { ($devices | Select-String -Pattern ([regex]::Escape($Mic)) -Context 1,0).Context.PreContext } else { "system default" }
+$spkLine = if ($Speakers) { ($devices | Select-String -Pattern ([regex]::Escape($Speakers)) -Context 1,0).Context.PreContext } else { "system default" }
+Write-Host "microphone: $($micLine -join '')"
+Write-Host "speakers:   $($spkLine -join '')"
+if (-not $Mic -or "$micLine" -match "bomboec Cable") {
+    throw "choose the physical microphone: pass -Mic <id> (ids: $rec --list) or select it in the bomboec tray menu"
 }
 if (Get-Process -Name bomboec -ErrorAction SilentlyContinue) {
     Write-Host "bomboec.exe is running: it holds the microphone in raw mode, stopping it for the recording"
