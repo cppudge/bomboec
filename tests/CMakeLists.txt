@@ -15,6 +15,7 @@ add_executable(bomboec_tests
     test_devices.cpp
     test_watchdog.cpp
     test_pipeline.cpp
+    test_pipeline_alignment.cpp
     "${BOMBOEC_MANIFEST}"
 )
 target_link_libraries(bomboec_tests PRIVATE

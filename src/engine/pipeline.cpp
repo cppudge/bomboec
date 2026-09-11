@@ -14,6 +14,11 @@ namespace {
 constexpr double kTps = 1e7;    // метки WASAPI: 100 ns
 constexpr int kMaxStretch = 4;  // максимум сэмплов коррекции на кадр (0.8 % на 480)
 
+// Выравнивание reference (referencePosition).
+constexpr double kPull = 0.01;            // доля ошибки предсказания, на которую позиция подтягивается за кадр
+constexpr double kSlipHysteresis = 0.75;  // целый индекс сдвигается, когда позиция ушла от него на столько
+constexpr double kRelockSamples = 480.0;  // расхождение больше 10 ms: позиция переустанавливается
+
 float rmsDb(const float* x, uint32_t n) {
     double e = 0.0;
     for (uint32_t i = 0; i < n; ++i) e += double(x[i]) * x[i];
@@ -46,7 +51,7 @@ bool Pipeline::configure(const PipelineFormat& fmt, const EngineSettings& settin
     refFrame_.resize(fmt_.referenceChannels, fmt_.frameSamples);
     leadTicks_ = int64_t(settings_.referenceLeadMs) * 10'000;
     refKeepFrames_ = rate / 2;  // держим 500 ms истории reference позади точки чтения
-    prevRefIndex_ = -1;
+    refLocked_ = false;
     frames_ = refMissing_ = refJumps_ = outUnderruns_ = outOverruns_ = outInserted_ = outDropped_ = 0;
 
     if (!settings_.recordDir.empty()) {
@@ -100,19 +105,16 @@ void Pipeline::processAvailable() {
         if (refAsm_.started()) {
             const Timeline mt = micAsm_.timelineSnapshot();
             const Timeline rt = refAsm_.timelineSnapshot();
-            const int64_t t = mt.ticksAt(double(micIndex)) - leadTicks_;
-            const double ri = rt.sampleAt(t);
-            const int64_t refIndex = ri > 0 ? std::llround(ri) : 0;
-            if (prevRefIndex_ >= 0 && refIndex != prevRefIndex_ + int64_t(frame)) {
-                refJumps_.fetch_add(1, std::memory_order_relaxed);
+            const double predicted = rt.sampleAt(mt.ticksAt(double(micIndex)) - leadTicks_);
+            const int64_t refIndex = referencePosition(predicted, rt.estimatedRate() / mt.estimatedRate());
+            if (refIndex >= 0) {  // до начала reference (первые кадры после старта) читать нечего
+                const RingBuffer::ReadAtResult r = refRing_.readAt(uint64_t(refIndex), refBuf_.data(), frame);
+                haveRef = (r == RingBuffer::ReadAtResult::Ok);
+                // Отбрасываем историю старше refKeepFrames_ позади точки чтения.
+                const uint64_t keepFrom = uint64_t(refIndex) > refKeepFrames_ ? uint64_t(refIndex) - refKeepFrames_ : 0;
+                const uint64_t consumed = refRing_.totalRead();
+                if (keepFrom > consumed) refRing_.discard(uint32_t(keepFrom - consumed));
             }
-            prevRefIndex_ = refIndex;
-            const RingBuffer::ReadAtResult r = refRing_.readAt(uint64_t(refIndex), refBuf_.data(), frame);
-            haveRef = (r == RingBuffer::ReadAtResult::Ok);
-            // Отбрасываем историю старше refKeepFrames_ позади точки чтения.
-            const uint64_t keepFrom = uint64_t(refIndex) > refKeepFrames_ ? uint64_t(refIndex) - refKeepFrames_ : 0;
-            const uint64_t consumed = refRing_.totalRead();
-            if (keepFrom > consumed) refRing_.discard(uint32_t(keepFrom - consumed));
         }
         if (!haveRef) {
             refMissing_.fetch_add(1, std::memory_order_relaxed);
@@ -158,6 +160,40 @@ void Pipeline::processAvailable() {
         }
         frames_.fetch_add(1, std::memory_order_relaxed);
     }
+}
+
+// Предсказание по таймлайнам несёт джиттер меток обоих потоков: у Yeti до ±10
+// сэмплов на кадр. Если читать прямо по нему, каждый кадр повторяет или пропускает
+// кусок reference, и для адаптивного фильтра AEC3 эхо-тракт всё время дёргается
+// (в симуляции с джиттером как на машине разработки подавление падало до 0.6 dB).
+// Поэтому позиция ведётся отдельно:
+//  - за кадр она сдвигается на frame * ratio: дрейф часов учитывается сразу;
+//  - к предсказанию подтягивается доля kPull ошибки: джиттер усредняется;
+//  - целый индекс чтения меняется на ±1 сэмпл, только когда позиция ушла от него
+//    дальше kSlipHysteresis: проскальзывания редкие (при 140 ppm раз в ~15 кадров)
+//    и без дребезга на границе;
+//  - расхождение больше kRelockSamples (старт, ресинхронизация таймлайна) - сразу
+//    к предсказанию.
+int64_t Pipeline::referencePosition(double predicted, double ratio) {
+    const uint32_t frame = fmt_.frameSamples;
+    if (refLocked_) {
+        refPos_ += double(frame) * ratio;
+        refIndex_ += int64_t(frame);
+        const double err = predicted - refPos_;
+        if (std::abs(err) < kRelockSamples) {
+            refPos_ += kPull * err;
+            const double offset = refPos_ - double(refIndex_);
+            if (offset > kSlipHysteresis) ++refIndex_;
+            else if (offset < -kSlipHysteresis) --refIndex_;
+            if (std::abs(offset) > kSlipHysteresis) refJumps_.fetch_add(1, std::memory_order_relaxed);
+            return refIndex_;
+        }
+        refJumps_.fetch_add(1, std::memory_order_relaxed);
+    }
+    refLocked_ = true;
+    refPos_ = predicted;
+    refIndex_ = std::llround(predicted);
+    return refIndex_;
 }
 
 void Pipeline::fillOutput(float* interleaved, uint32_t frames) {

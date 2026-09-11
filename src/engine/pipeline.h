@@ -40,9 +40,10 @@ struct PipelineStats {
 //
 // Потоки: onRefPacket (loopback) пишет refRing; onMicPacket (микрофон) пишет
 // micRing и выполняет весь DSP, он же пишет outRing; fillOutput (render)
-// читает outRing. Reference для кадра mic с временем t берётся из refRing по
-// индексу refTimeline.sampleAt(t - lead): дрейф часов компенсируется
-// проскальзыванием на сэмпл, а не накоплением задержки.
+// читает outRing. Reference для кадра mic с временем t читается из refRing
+// непрерывно, около индекса refTimeline.sampleAt(t - lead): дрейф часов
+// компенсируется редким проскальзыванием на сэмпл, джиттер меток сглаживается
+// (см. referencePosition).
 //
 // Задержка выхода: outRing держит запас output_buffer_ms после каждого чтения
 // (FillController подгоняет его растяжением кадра на 1..4 сэмпла, компенсируя
@@ -71,6 +72,9 @@ public:
 
 private:
     void processAvailable();
+    // Индекс первого сэмпла reference для очередного кадра mic. predicted: индекс по
+    // таймлайнам (с джиттером меток), ratio: частота reference / частота mic.
+    int64_t referencePosition(double predicted, double ratio);
 
     PipelineFormat fmt_;
     EngineSettings settings_;
@@ -83,7 +87,9 @@ private:
     Frame micFrame_, refFrame_;
     int64_t leadTicks_ = 0;
     uint64_t refKeepFrames_ = 0;
-    int64_t prevRefIndex_ = -1;
+    bool refLocked_ = false;
+    double refPos_ = 0.0;   // сглаженная дробная позиция reference для текущего кадра
+    int64_t refIndex_ = 0;  // целый индекс чтения: следует за refPos_ с гистерезисом
 
     // debug-запись
     WavWriter recMic_, recRef_, recOut_;
