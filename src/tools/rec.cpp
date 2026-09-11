@@ -45,9 +45,7 @@ struct Track {
     uint64_t skip = 0;  // сэмплы до общего t0 (уменьшается при drain)
     uint64_t initialSkip = 0;
     uint64_t written = 0;
-    std::atomic<uint64_t> packets{0};
-    std::atomic<uint64_t> tsErrors{0};
-    std::atomic<uint64_t> discontinuities{0};
+    std::atomic<uint64_t> packets{0};  // читается из главного потока, пока идёт запись
     std::vector<float> scratch;
 
     Track(const char* n, uint32_t ch) : name(n), channels(ch) {
@@ -58,9 +56,7 @@ struct Track {
 
     void onPacket(const ws::CapturePacket& p) {
         packets.fetch_add(1);
-        if (p.timestampError) tsErrors.fetch_add(1);
-        if (p.discontinuity) discontinuities.fetch_add(1);
-        assembler.push(p.interleaved, p.frames, p.qpc100ns);
+        assembler.push(p.interleaved, p.frames, p.qpc100ns, {p.timestampError, p.discontinuity});
     }
 
     // Переливает из ring в WAV, пропуская сэмплы до t0.
@@ -266,13 +262,15 @@ int run(int argc, char** argv) {
                          "  \"%s\": {\"channels\": %u, \"frames\": %llu, \"packets\": %llu, \"skip\": %llu,\n"
                          "    \"gaps\": %llu, \"gap_samples\": %llu, \"overlaps\": %llu, \"overlap_samples\": %llu,\n"
                          "    \"dropped\": %llu, \"max_jitter_ms\": %.3f, \"timestamp_errors\": %llu,\n"
-                         "    \"discontinuities\": %llu, \"estimated_rate\": %.3f, \"drift_ppm\": %.2f},\n",
+                         "    \"discontinuities\": %llu, \"resyncs\": %llu, \"estimated_rate\": %.3f, "
+                         "\"drift_ppm\": %.2f},\n",
                          t->name, t->channels, (unsigned long long)t->written, (unsigned long long)s.packets,
                          (unsigned long long)t->initialSkip, (unsigned long long)s.gaps,
                          (unsigned long long)s.gapSamples, (unsigned long long)s.overlaps,
                          (unsigned long long)s.overlapSamples, (unsigned long long)s.dropped, s.maxJitterMs,
-                         (unsigned long long)t->tsErrors.load(), (unsigned long long)t->discontinuities.load(),
-                         t->assembler.timeline().estimatedRate(), t->assembler.timeline().driftPpm());
+                         (unsigned long long)s.timestampErrors, (unsigned long long)s.discontinuities,
+                         (unsigned long long)s.resyncs, t->assembler.timeline().estimatedRate(),
+                         t->assembler.timeline().driftPpm());
         }
         std::fprintf(f, "  \"relative_drift_ppm\": %.2f\n}\n",
                      mic.assembler.timeline().driftPpm() - ref.assembler.timeline().driftPpm());

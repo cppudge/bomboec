@@ -164,10 +164,12 @@ void Engine::stop() {
     chain_.reset();
 }
 
-void Engine::onRefPacket(const wasapi::CapturePacket& p) { refAsm_.push(p.interleaved, p.frames, p.qpc100ns); }
+void Engine::onRefPacket(const wasapi::CapturePacket& p) {
+    refAsm_.push(p.interleaved, p.frames, p.qpc100ns, {p.timestampError, p.discontinuity});
+}
 
 void Engine::onMicPacket(const wasapi::CapturePacket& p) {
-    micAsm_.push(p.interleaved, p.frames, p.qpc100ns);
+    micAsm_.push(p.interleaved, p.frames, p.qpc100ns, {p.timestampError, p.discontinuity});
     processAvailable();
 }
 

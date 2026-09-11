@@ -85,3 +85,84 @@ TEST_CASE("PacketAssembler fills gaps with silence and drops overlaps") {
     CHECK_FALSE(pa.started());
     CHECK(pa.stats().packets == 0);
 }
+
+TEST_CASE("PacketAssembler places a packet with a timestamp error right after the previous one") {
+    RingBuffer ring(1, 48000);
+    PacketAssembler pa;
+    pa.configure(kRate, kTps, &ring);
+    std::vector<float> pkt(kPacket, 1.0f);
+    int64_t t = 36'000'000'000;  // час аптайма
+    for (int i = 0; i < 3; ++i, t += kPacketTicks) pa.push(pkt.data(), kPacket, t);
+    pa.push(pkt.data(), kPacket, 0, {.timestampError = true, .discontinuity = true});
+    t += kPacketTicks;
+    pa.push(pkt.data(), kPacket, t);
+
+    CHECK(pa.stats().timestampErrors == 1);
+    CHECK(pa.stats().discontinuities == 1);
+    CHECK(pa.stats().gaps == 0);
+    CHECK(pa.stats().overlaps == 0);
+    CHECK(pa.stats().resyncs == 0);
+    CHECK(ring.readable() == 5 * kPacket);
+    CHECK(pa.timeline().lastTicks() == t);
+    CHECK(pa.timeline().lastSample() == 4 * kPacket);
+}
+
+TEST_CASE("PacketAssembler resyncs on a jump beyond the threshold instead of filling silence") {
+    RingBuffer ring(1, 48000 * 2);
+    PacketAssembler pa;
+    pa.configure(kRate, kTps, &ring);
+    std::vector<float> pkt(kPacket, 1.0f);
+    int64_t t = 10'000'000;
+    pa.push(pkt.data(), kPacket, t);
+    t += kPacketTicks;
+    pa.push(pkt.data(), kPacket, t);
+
+    // Вперёд на 5 с: раньше это 2 с тишины (всё кольцо) и сдвиг таймлайна.
+    t += 50'000'000;
+    pa.push(pkt.data(), kPacket, t);
+    CHECK(pa.stats().resyncs == 1);
+    CHECK(pa.stats().gaps == 0);
+    CHECK(ring.readable() == 3 * kPacket);
+    CHECK(pa.timeline().lastTicks() == t);
+    CHECK(pa.timeline().lastSample() == 2 * kPacket);
+
+    // Назад без флага (битая метка): пакет не выбрасывается как наложение.
+    pa.push(pkt.data(), kPacket, 0);
+    CHECK(pa.stats().resyncs == 2);
+    CHECK(pa.stats().overlaps == 0);
+    CHECK(ring.readable() == 4 * kPacket);
+}
+
+TEST_CASE("PacketAssembler anchors on what the full ring actually took") {
+    std::vector<float> pkt(kPacket, 1.0f);
+    const int64_t t = 10'000'000;
+
+    SECTION("partial write") {
+        RingBuffer ring(1, 1000);
+        PacketAssembler pa;
+        pa.configure(kRate, kTps, &ring);
+        pa.push(pkt.data(), kPacket, t);
+        pa.push(pkt.data(), kPacket, t + kPacketTicks);
+        pa.push(pkt.data(), kPacket, t + 2 * kPacketTicks);  // влезает 40 из 480
+        CHECK(pa.stats().dropped == 440);
+        CHECK(pa.timeline().lastTicks() == t + 2 * kPacketTicks);
+        CHECK(pa.timeline().lastSample() == 2 * kPacket);  // было 1000 - 480 = 520
+    }
+    SECTION("nothing written") {
+        RingBuffer ring(1, 2 * kPacket);
+        PacketAssembler pa;
+        pa.configure(kRate, kTps, &ring);
+        pa.push(pkt.data(), kPacket, t);
+        pa.push(pkt.data(), kPacket, t + kPacketTicks);
+        pa.push(pkt.data(), kPacket, t + 2 * kPacketTicks);  // кольцо полно
+        CHECK(pa.stats().dropped == kPacket);
+        CHECK(pa.timeline().lastTicks() == t + kPacketTicks);  // якорь второго пакета остался
+        CHECK(pa.timeline().lastSample() == kPacket);
+
+        std::vector<float> sink(kPacket);
+        ring.read(sink.data(), kPacket);
+        pa.push(pkt.data(), kPacket, t + 3 * kPacketTicks);
+        CHECK(pa.timeline().lastTicks() == t + 3 * kPacketTicks);
+        CHECK(pa.timeline().lastSample() == 2 * kPacket);
+    }
+}

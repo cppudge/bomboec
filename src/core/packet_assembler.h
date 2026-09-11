@@ -11,12 +11,23 @@
 
 namespace bomboec {
 
+// Флаги пакета WASAPI, которые влияют на сборку потока.
+struct PacketFlags {
+    bool timestampError = false;  // AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR: метке не верить
+    bool discontinuity = false;   // AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY: глитч устройства
+};
+
 // Превращает поток пакетов с метками времени (WASAPI: QPC-позиция первого
 // сэмпла пакета) в непрерывный поток сэмплов в RingBuffer:
 //  - пропуск между ожидаемым и реальным временем пакета больше порога
 //    заполняется тишиной (loopback без активных render-потоков, стойлы);
 //  - наложение (пакет пришёл раньше ожидаемого) отбрасывает лишние сэмплы;
-//  - каждый пакет становится якорем Timeline (индекс сэмпла <-> тики).
+//  - расхождение больше порога ресинхронизации (устройство перезапустилось,
+//    битая метка) не заливается тишиной и не режется: Timeline начинается
+//    заново с этого пакета (stats().resyncs). Иначе одна метка qpc = 0 залила
+//    бы тишиной всё кольцо;
+//  - пакет с timestampError встаёт вплотную к предыдущему;
+//  - каждый записанный пакет становится якорем Timeline (индекс сэмпла <-> тики).
 //
 // Ожидаемое время следующего пакета переустанавливается от метки каждого
 // пакета, поэтому дрейф часов устройства не накапливается в ошибку:
@@ -32,15 +43,20 @@ public:
         uint64_t gapSamples = 0;
         uint64_t overlaps = 0;
         uint64_t overlapSamples = 0;
-        uint64_t dropped = 0;      // не поместилось в ring
-        double maxJitterMs = 0.0;  // максимальное |ожидаемое - реальное| ниже порога
+        uint64_t resyncs = 0;          // расхождение больше порога ресинхронизации
+        uint64_t timestampErrors = 0;  // пакетов с timestampError
+        uint64_t discontinuities = 0;  // пакетов с discontinuity
+        uint64_t dropped = 0;          // не поместилось в ring
+        double maxJitterMs = 0.0;      // максимальное |ожидаемое - реальное| ниже порога
     };
 
-    void configure(double nominalRate, double ticksPerSecond, RingBuffer* ring, double gapThresholdMs = 2.5) {
+    void configure(double nominalRate, double ticksPerSecond, RingBuffer* ring, double gapThresholdMs = 2.5,
+                   double resyncThresholdMs = 200.0) {
         rate_ = nominalRate;
         tps_ = ticksPerSecond;
         ring_ = ring;
         thresholdSamples_ = std::llround(gapThresholdMs / 1000.0 * nominalRate);
+        resyncSamples_ = std::llround(resyncThresholdMs / 1000.0 * nominalRate);
         timeline_.configure(nominalRate, ticksPerSecond);
         reset();
     }
@@ -55,9 +71,15 @@ public:
     }
 
     // interleaved содержит frames фреймов с числом каналов ring->channels().
-    void push(const float* interleaved, uint32_t frames, int64_t ticks) {
+    void push(const float* interleaved, uint32_t frames, int64_t ticks, PacketFlags flags = {}) {
         ++stats_.packets;
-        if (!started_.load(std::memory_order_relaxed)) {
+        if (flags.discontinuity) ++stats_.discontinuities;
+        const bool started = started_.load(std::memory_order_relaxed);
+        if (flags.timestampError) {
+            ++stats_.timestampErrors;
+            if (started) ticks = expectedTicks_;
+        }
+        if (!started) {
             originTicks_ = ticks;
             expectedTicks_ = ticks;
         }
@@ -65,8 +87,11 @@ public:
         const int64_t deltaTicks = ticks - expectedTicks_;
         const int64_t deltaSamples = std::llround(double(deltaTicks) * rate_ / tps_);
         uint32_t skip = 0;
-        if (deltaSamples > thresholdSamples_) {
-            const uint32_t fill = uint32_t(deltaSamples);
+        const bool resync = std::llabs(deltaSamples) > resyncSamples_;
+        if (resync) {
+            ++stats_.resyncs;
+        } else if (deltaSamples > thresholdSamples_) {
+            const auto fill = uint32_t(deltaSamples);  // не больше resyncSamples_
             const uint32_t written = ring_->writeSilence(fill);
             stats_.dropped += fill - written;
             ++stats_.gaps;
@@ -80,19 +105,23 @@ public:
         }
 
         const uint32_t n = frames - skip;
+        uint32_t written = 0;
         if (n > 0) {
-            const uint32_t written = ring_->write(interleaved + size_t(skip) * ring_->channels(), n);
+            written = ring_->write(interleaved + size_t(skip) * ring_->channels(), n);
             stats_.dropped += n - written;
         }
 
-        // Якорь: первый записанный сэмпл этого пакета соответствует моменту
-        // ticks + skip/rate. Индекс берём по позиции записи ring.
-        const uint64_t firstIndex = ring_->totalWritten() - n;
-        {
+        // Якорь: первый записанный сэмпл пакета соответствует моменту ticks + skip/rate.
+        // write() при переполнении отбрасывает хвост пакета, поэтому индекс считается от
+        // записанного. Если не записалось ничего, totalWritten() принадлежит будущему
+        // пакету и якорь не ставится (кроме ресинхронизации: там отсчёт начинается заново).
+        if (written > 0 || resync) {
+            const uint64_t firstIndex = ring_->totalWritten() - written;
             const SpinGuard g(lock_);
+            if (resync) timeline_.reset();
             timeline_.anchor(ticks + std::llround(double(skip) / rate_ * tps_), firstIndex);
+            started_.store(true, std::memory_order_release);
         }
-        started_.store(true, std::memory_order_release);
 
         expectedTicks_ = ticks + std::llround(double(frames) / rate_ * tps_);
     }
@@ -123,6 +152,7 @@ private:
     double tps_ = 1e7;
     RingBuffer* ring_ = nullptr;
     int64_t thresholdSamples_ = 120;
+    int64_t resyncSamples_ = 9600;
     Timeline timeline_;
     mutable std::atomic_flag lock_;
     std::atomic<bool> started_{false};
