@@ -19,8 +19,8 @@ find_package(cxxopts REQUIRED)
 
 add_subdirectory(src)
 
-enable_testing()
-find_package(Catch2 QUIET)
-if(Catch2_FOUND)
+include(CTest)
+if(BUILD_TESTING)
+    find_package(Catch2 3 REQUIRED)
     add_subdirectory(tests)
 endif()

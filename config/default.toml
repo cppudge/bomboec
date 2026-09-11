@@ -1,0 +1,25 @@
+# Конфигурация конвейера bomboec по умолчанию.
+
+[format]
+sample_rate = 48000
+frame_ms = 10
+mic_channels = 1
+reference_channels = 2
+
+# Цепочка стадий выполняется по порядку. Каждая возможность (hpf, aec, ns, agc,
+# limiter) может быть объявлена только одной стадией.
+
+[[chain]]
+id = "webrtc"
+aec = true
+hpf = true
+ns = false
+ns_level = "moderate"
+agc = false
+filter_length_blocks = 13
+delay_num_filters = 5
+
+[[chain]]
+id = "limiter"
+ceiling_db = -1.0
+release_ms = 50.0

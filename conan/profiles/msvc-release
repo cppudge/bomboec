@@ -10,4 +10,4 @@ compiler.runtime_type=Release
 
 [conf]
 tools.cmake.cmaketoolchain:generator=Ninja
-tools.build:skip_test=True
+tools.build:skip_test=False

@@ -26,5 +26,5 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Ninja + MSVC: окружение компилятора поднимает conanbuild.bat, поэтому cmake запускаем через cmd.
 $gen = if ($Debug) { "build\Debug\generators" } else { "build\Release\generators" }
-cmd /c "$gen\conanbuild.bat && cmake --preset $preset && cmake --build --preset $preset"
+cmd /c "$gen\conanbuild.bat && cmake --preset $preset && cmake --build --preset $preset && ctest --preset $preset --output-on-failure"
 exit $LASTEXITCODE

@@ -50,15 +50,25 @@ Remotes ограничены явно, чтобы недоступные кор�
 ```text
 conanfile.py                  зависимости приложения
 CMakeLists.txt                корневой проект
+build.ps1                     conan install + cmake + ctest
 conan/profiles/               профили Conan для проекта
 conan-recipes/recipes/        локальные рецепты (webrtc-audio-processing, позже speexdsp, rnnoise)
-src/core/                     Frame, ring buffer, timeline QPC<->sample, IStage, Chain, StageRegistry
-src/wasapi/                   устройства, capture, loopback, render, уведомления
-src/stages/                   hpf, webrtc_apm, limiter; позже speex_aec, rnnoise, ...
-src/tools/                    bomboec-rec (рекордер), bomboec-proc (офлайн-процессор)
-src/app/                      tray-приложение
+config/default.toml           конфигурация конвейера по умолчанию
+src/core/                     Frame, RingBuffer, Timeline QPC<->sample, IStage, Chain, StageRegistry, config
+src/stages/                   hpf, webrtc (AEC3 + hpf/ns/agc из APM), limiter; позже speex_aec, rnnoise, ...
+src/wasapi/                   устройства, capture, loopback, render, уведомления (этап 2)
+src/tools/                    apm_smoke; далее bomboec-rec (рекордер), bomboec-proc (офлайн-процессор)
+src/app/                      tray-приложение (этап 4)
 tests/                        Catch2
 ```
+
+### Стадии и их ключи конфига
+
+| id | Caps | Ключи |
+|---|---|---|
+| `hpf` | hpf | `cutoff_hz` (80) |
+| `webrtc` | aec, и по флагам hpf/ns/agc | `aec` (true), `hpf` (false), `ns` (false), `ns_level` (moderate), `agc` (false), `filter_length_blocks` (13), `delay_num_filters` (5) |
+| `limiter` | limiter | `ceiling_db` (-1.0), `release_ms` (50) |
 
 ## Интерфейс стадии
 
@@ -112,8 +122,8 @@ public:
 
 | Этап | Результат | Критерий готовности |
 |---|---|---|
-| 0. Бутстрап | conanfile, рецепт AEC3, скелет CMake, скрипт сборки | тестовый бинарь линкуется с APM и прогоняет тишину |
-| 1. Ядро | Frame, ring, timeline, IStage, Chain, Registry, конфиг TOML, тесты | стадии hpf и webrtc проходят unit-тесты на синтетике |
+| 0. Бутстрап (готово) | conanfile, рецепт AEC3, скелет CMake, скрипт сборки | тестовый бинарь линкуется с APM и прогоняет тишину |
+| 1. Ядро (готово) | Frame, ring, timeline, IStage, Chain, Registry, конфиг TOML, тесты | стадии hpf и webrtc проходят unit-тесты на синтетике |
 | 2. Рекордер | WASAPI mic в raw mode, loopback с keepalive, QPC-метки, multi-track WAV | синхронные записи с реального стола плюс metadata.json |
 | 3. Офлайн-процессор | WAV в цепочку, WAV на выходе, ERLE и статистика APM | подобран конфиг AEC3 под конкретный setup |
 | 4. Realtime | движок на mic-потоке, reference по таймлайну, вывод в VB-Cable, tray с диагностикой | Discord работает через виртуальный микрофон |
