@@ -163,6 +163,30 @@ double rmsDb(const std::vector<float>& x, size_t from, size_t to) {
 }
 
 // Максимум по окнам 100 ms превышения выхода над входом, dB.
+// Задержка выхода относительно микрофона (кадр, запас кольца, фаза чтения): максимум
+// корреляции огибающих RMS по 10 ms при лаге 0..20 кадров. Без выравнивания щелчок на границе
+// окна попадал бы в выход на окно позже и выглядел всплеском.
+size_t estimateLagSamples(const std::vector<float>& mic, const std::vector<float>& out, size_t frame) {
+    const size_t n = std::min(mic.size(), out.size()) / frame;
+    if (n < 40) return 0;
+    std::vector<double> em(n), eo(n);
+    for (size_t k = 0; k < n; ++k) {
+        em[k] = rmsDb(mic, k * frame, (k + 1) * frame);
+        eo[k] = rmsDb(out, k * frame, (k + 1) * frame);
+    }
+    size_t bestLag = 0;
+    double best = -1e300;
+    for (size_t lag = 0; lag <= 20; ++lag) {
+        double sum = 0.0;
+        for (size_t k = 0; k + lag < n; ++k) sum += em[k] * eo[k + lag];
+        if (sum > best) {
+            best = sum;
+            bestLag = lag;
+        }
+    }
+    return bestLag * frame;
+}
+
 double maxBurstDb(const std::vector<float>& mic, const std::vector<float>& out, size_t from, size_t to) {
     constexpr size_t kWindow = 4800;
     double worst = -120.0;
@@ -184,6 +208,7 @@ struct ScenarioResult {
     double micPpm = 0.0, refPpm = 0.0;
     std::optional<double> erleDb, delayMs;
     uint64_t refMissing = 0, refJumps = 0, outTrimmed = 0;
+    double outLagMs = 0.0;
 };
 
 bool runScenario(const Corpus& corpus, const Scenario& sc, ScenarioResult& r, std::string& error) {
@@ -228,8 +253,12 @@ bool runScenario(const Corpus& corpus, const Scenario& sc, ScenarioResult& r, st
     }
     sim.run(double(mic.size()) / cfg.format.sampleRate + 0.5);
 
-    const std::vector<float>& out = sim.output;
     const double rate = cfg.format.sampleRate;
+    // Выход сдвинут на задержку конвейера: сравниваем одно и то же время.
+    const size_t lag = estimateLagSamples(mic, sim.output, cfg.format.frameSamples);
+    r.outLagMs = double(lag) * 1000.0 / rate;
+    const std::vector<float> out(sim.output.begin() + std::ptrdiff_t(std::min(lag, sim.output.size())),
+                                 sim.output.end());
     for (const Segment& seg : sc.segments) {
         SegmentResult sr;
         sr.seg = seg;
@@ -276,7 +305,8 @@ TEST_CASE("Corpus: recorded scenarios keep their echo, speech and noise metrics"
             std::ostringstream report;
             report << "scenario " << sc.name << ": drift mic " << r.micPpm << " / ref " << r.refPpm << " ppm, erle "
                    << (r.erleDb ? *r.erleDb : -1.0) << " dB, delay " << (r.delayMs ? *r.delayMs : -1.0)
-                   << " ms, refMissing " << r.refMissing << ", trimmed " << r.outTrimmed << "\n";
+                   << " ms, refMissing " << r.refMissing << ", trimmed " << r.outTrimmed << ", output lag "
+                   << r.outLagMs << " ms\n";
             std::ostringstream baseline;
             baseline << "baseline = [";
             for (size_t k = 0; k < r.segments.size(); ++k) {
