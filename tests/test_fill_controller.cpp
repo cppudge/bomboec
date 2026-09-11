@@ -53,7 +53,8 @@ static void simulate(double driftPpm, uint32_t target, uint32_t& finalMargin, in
     FillController fc;
     fc.configure(target);
     std::vector<float> frame(480 + 8, 0.0f);
-    std::vector<float> sink(480, 0.0f);
+    // Consumer с отрицательным дрейфом читает до 481 кадра за шаг.
+    std::vector<float> sink(480 + 8, 0.0f);
     ring.writeSilence(target + 480);
     double consumerDebt = 0.0;
     netAdjust = 0;
