@@ -35,9 +35,17 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # для clangd в IDE
 # Все exe в одном месте: приложение, утилиты и тесты.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR}/bin)
 
+# Код чист на /W4, поэтому предупреждения по умолчанию ошибки. -DBOMBOEC_WERROR=OFF, если новый
+# компилятор найдёт что-то раньше, чем это успеют поправить.
+option(BOMBOEC_WERROR "Treat compiler warnings as errors" ON)
+
+# Общие флаги и макросы для всех наших целей: каждая линкует bomboec::options (PRIVATE).
+add_library(bomboec_options INTERFACE)
+add_library(bomboec::options ALIAS bomboec_options)
 if(MSVC)
-    add_compile_options(/W4 /permissive- /utf-8 /Zc:__cplusplus)
-    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _USE_MATH_DEFINES UNICODE _UNICODE)
+    target_compile_options(bomboec_options INTERFACE
+        /W4 /permissive- /utf-8 /Zc:__cplusplus $<$<BOOL:${BOMBOEC_WERROR}>:/WX>)
+    target_compile_definitions(bomboec_options INTERFACE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 endif()
 
 find_package(webrtc-audio-processing REQUIRED)
