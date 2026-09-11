@@ -1,0 +1,58 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "description": "Ninja + MSVC (cl.exe must be on PATH: Developer PowerShell, build.ps1, VS Code CMake Tools or VS Open Folder). conan install runs from CMake into ./.conan2.",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/ninja-${presetName}",
+            "architecture": { "value": "x64", "strategy": "external" },
+            "toolset": { "value": "host=x64", "strategy": "external" },
+            "cacheVariables": {
+                "BOMBOEC_LOCAL_CONAN_HOME": "ON",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Ninja Release",
+            "inherits": "base",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+        },
+        {
+            "name": "debug",
+            "displayName": "Ninja Debug",
+            "description": "First configure builds Debug dependencies from source.",
+            "inherits": "base",
+            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+        }
+    ],
+    "buildPresets": [
+        { "name": "release", "configurePreset": "release" },
+        { "name": "debug", "configurePreset": "debug" }
+    ],
+    "testPresets": [
+        { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
+        { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } }
+    ],
+    "workflowPresets": [
+        {
+            "name": "release",
+            "steps": [
+                { "type": "configure", "name": "release" },
+                { "type": "build", "name": "release" },
+                { "type": "test", "name": "release" }
+            ]
+        },
+        {
+            "name": "debug",
+            "steps": [
+                { "type": "configure", "name": "debug" },
+                { "type": "build", "name": "debug" },
+                { "type": "test", "name": "debug" }
+            ]
+        }
+    ]
+}

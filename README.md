@@ -20,26 +20,35 @@
 
 ## Окружение
 
-- Windows 10/11 x64, Visual Studio 2022 (MSVC 19.4x), Windows SDK 10.0.22621+.
-- CMake 3.28+, Ninja, Conan 2.x. Meson и pkgconf для сборки рецептов Conan подтягивает сам.
+- Windows 10/11 x64, Visual Studio 2022/2026 с C++ (MSVC 19.4x+), Windows SDK 10.0.22621+.
+- CMake 3.28+, Ninja, Conan 2.x в PATH. Meson и pkgconf для сборки рецептов Conan подтягивает сам.
 
 ## Сборка
 
 ```powershell
-./build.ps1            # Release; ./build.ps1 -Debug для Debug, -Clean для чистой сборки
+./build.ps1            # Release: configure + build + ctest; -Debug для Debug, -Clean для чистой сборки
 ```
 
-Скрипт делает то же, что и руками:
+Скрипт поднимает окружение MSVC (vcvars64 через vswhere, если `cl.exe` нет в PATH) и вызывает
+`cmake --workflow --preset release`. Из Developer PowerShell, VS Code (CMake Tools) или
+Visual Studio (Open Folder) пресеты работают напрямую:
 
 ```powershell
-conan remote add bomboec-local ./conan-recipes --type local-recipes-index   # один раз
-conan install . -pr:a ./conan/profiles/msvc-release -r bomboec-local -r conancenter --build=missing
-cmake --preset conan-release
-cmake --build --preset conan-release
+cmake --preset release
+cmake --build --preset release
+ctest --preset release
 ```
 
-Профиль проекта лежит в `conan/profiles/` и не зависит от пользовательского default-профиля.
-Remotes ограничены явно, чтобы недоступные корпоративные remotes не ломали разрешение графа.
+Бинарники (bomboec.exe, утилиты, тесты) лежат в `build/ninja-release/bin/`.
+
+`conan install` запускает сам CMake при настройке (cmake-conan provider, `cmake/cmake-conan/`).
+Conan работает в домашней папке проекта `.conan2/`: в ней только conancenter и локальный индекс
+рецептов `conan-recipes/` (remote `bomboec-local`), поэтому глобальные профили и remotes
+пользователя на сборку не влияют. Настройки (компилятор, cppstd, runtime, build type) Conan
+получает из того, что нашёл CMake. Первая настройка собирает зависимости в этот кэш
+(webrtc-audio-processing и abseil из исходников, несколько минут). Ручные команды conan с тем же
+кэшем: `$env:CONAN_HOME = "$PWD/.conan2"`. `-DBOMBOEC_LOCAL_CONAN_HOME=OFF` берёт глобальную
+домашнюю папку Conan, remote `bomboec-local` тогда нужно добавить в неё самому.
 
 Рецепт `webrtc-audio-processing` пинит abseil 20240722 (более новые abseil убрали
 `absl::Nullable`) и добавляет в библиотеку `api/audio/echo_canceller3_factory.h`, которой нет
@@ -49,9 +58,11 @@ Remotes ограничены явно, чтобы недоступные кор�
 
 ```text
 conanfile.py                  зависимости приложения
-CMakeLists.txt                корневой проект
-build.ps1                     conan install + cmake + ctest
-conan/profiles/               профили Conan для проекта
+CMakeLists.txt                корневой проект, подключение cmake-conan
+CMakePresets.json             пресеты release/debug (configure, build, test, workflow)
+build.ps1                     окружение MSVC + cmake --workflow
+cmake/cmake-conan/            cmake-conan provider (conan install из CMake)
+scripts/                      вспомогательные скрипты (vcvars.ps1)
 conan-recipes/recipes/        локальные рецепты (webrtc-audio-processing, позже speexdsp, rnnoise)
 config/default.toml           конфигурация конвейера по умолчанию
 src/core/                     Frame, RingBuffer, Timeline, PacketAssembler, WAV, IStage, Chain, StageRegistry, config
@@ -108,8 +119,8 @@ public:
 ## Рекордер
 
 ```powershell
-./build/Release/src/tools/bomboec-rec.exe --list
-./build/Release/src/tools/bomboec-rec.exe --out recordings/take1 --seconds 20 --mic "<id>" --speakers "<id>"
+./build/ninja-release/bin/bomboec-rec.exe --list
+./build/ninja-release/bin/bomboec-rec.exe --out recordings/take1 --seconds 20 --mic "<id>" --speakers "<id>"
 ```
 
 Пишет `mic.wav` (mono) и `ref.wav` (stereo), 48 kHz float32, выровненные по QPC-меткам
@@ -126,7 +137,7 @@ public:
 ## Офлайн-процессор
 
 ```powershell
-./build/Release/src/tools/bomboec-proc.exe --mic take/mic.wav --ref take/ref.wav --config config/default.toml --out take/out.wav --csv take/stats.csv
+./build/ninja-release/bin/bomboec-proc.exe --mic take/mic.wav --ref take/ref.wav --config config/default.toml --out take/out.wav --csv take/stats.csv
 ```
 
 Гонит пару WAV через цепочку из конфига кадрами по 10 ms, пишет результат и раз в секунду
@@ -153,7 +164,7 @@ delay/ERL/ERLE, пропуски reference, буфер выхода, дрейф)
 Консольный вариант для отладки:
 
 ```powershell
-./build/Release/src/tools/bomboec-run.exe --config config/default.toml --seconds 30 --mic "<id>" --speakers "<id>" --output "<id>" --record recordings/live1
+./build/ninja-release/bin/bomboec-run.exe --config config/default.toml --seconds 30 --mic "<id>" --speakers "<id>" --output "<id>" --record recordings/live1
 ```
 
 `--record` включает debug-запись mic_raw/ref/out в WAV (то, что реально видел движок).

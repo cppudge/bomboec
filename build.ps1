@@ -1,7 +1,9 @@
-# Сборка проекта: conan install + cmake. Использование:
-#   .\build.ps1            # Release
+# Сборка проекта: configure + build + ctest через CMake workflow preset. Использование:
+#   .\build.ps1            # Release (cmake --workflow --preset release)
 #   .\build.ps1 -Debug     # Debug
-#   .\build.ps1 -Clean     # удалить build/ перед сборкой
+#   .\build.ps1 -Clean     # удалить build\ninja-<preset> перед сборкой
+# conan install запускает сам CMake (cmake-conan provider, см. CMakeLists.txt). Ninja + MSVC
+# нужен cl.exe в окружении: если его нет в PATH, окружение поднимается через vcvars64.
 param(
     [switch]$Debug,
     [switch]$Clean
@@ -9,22 +11,14 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-$profile = if ($Debug) { "./conan/profiles/msvc-debug" } else { "./conan/profiles/msvc-release" }
-$preset  = if ($Debug) { "conan-debug" } else { "conan-release" }
+$preset = if ($Debug) { "debug" } else { "release" }
+$binaryDir = Join-Path $PSScriptRoot "build\ninja-$preset"
+if ($Clean -and (Test-Path $binaryDir)) { Remove-Item -Recurse -Force $binaryDir }
 
-if ($Clean -and (Test-Path build)) { Remove-Item -Recurse -Force build }
-
-# Локальный индекс рецептов (webrtc-audio-processing и другие, которых нет в Conan Center).
-$remotes = conan remote list 2>$null
-if (-not ($remotes -match "^bomboec-local:")) {
-    conan remote add bomboec-local ./conan-recipes --type local-recipes-index
+if (Get-Command cl.exe -ErrorAction SilentlyContinue) {
+    cmake --workflow --preset $preset
+} else {
+    $vcvars = & (Join-Path $PSScriptRoot "scripts\vcvars.ps1")
+    cmd /c "`"$vcvars`" >nul && cmake --workflow --preset $preset"
 }
-
-# Только нужные remotes: пользовательские корпоративные remotes могут быть недоступны.
-conan install . -pr:a $profile -r bomboec-local -r conancenter --build=missing
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-# Ninja + MSVC: окружение компилятора поднимает conanbuild.bat, поэтому cmake запускаем через cmd.
-$gen = if ($Debug) { "build\Debug\generators" } else { "build\Release\generators" }
-cmd /c "$gen\conanbuild.bat && cmake --preset $preset && cmake --build --preset $preset && ctest --preset $preset --output-on-failure"
 exit $LASTEXITCODE

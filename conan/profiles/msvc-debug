@@ -1,5 +1,0 @@
-include(msvc-release)
-
-[settings]
-build_type=Debug
-compiler.runtime_type=Debug

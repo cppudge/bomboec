@@ -5,7 +5,7 @@
 # Установка требует прав администратора: driver\install.ps1.
 param(
     [switch]$Clean,
-    [string]$VsRoot = "C:\Program Files\Microsoft Visual Studio\18\Insiders",
+    [string]$VsRoot,  # по умолчанию последняя Visual Studio с C++ (vswhere)
     [string]$WdkBin = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64"
 )
 $ErrorActionPreference = "Stop"
@@ -14,7 +14,7 @@ $buildDir = Join-Path $root "build\driver"
 $pkg = Join-Path $buildDir "package"
 if ($Clean -and (Test-Path $buildDir)) { Remove-Item -Recurse -Force $buildDir }
 
-$vcvars = Join-Path $VsRoot "VC\Auxiliary\Build\vcvars64.bat"
+$vcvars = if ($VsRoot) { Join-Path $VsRoot "VC\Auxiliary\Build\vcvars64.bat" } else { & (Join-Path $root "scripts\vcvars.ps1") }
 if (-not (Test-Path $vcvars)) { throw "vcvars64.bat not found: $vcvars" }
 
 $src = Join-Path $root "driver"
