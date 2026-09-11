@@ -49,10 +49,21 @@ public:
         }
     }
 
+    // Consumer: забыть измерения, когда они больше не про текущее состояние кольца
+    // (кольцо опустело, излишек выброшен разом).
+    void restartWindow() {
+        cur_.store(kNone, std::memory_order_relaxed);
+        prev_.store(kNone, std::memory_order_relaxed);
+        reads_ = 0;
+    }
+
     // Минимальный запас за окно; kNone, пока измерений не было.
     uint32_t marginFrames() const {
         return std::min(cur_.load(std::memory_order_relaxed), prev_.load(std::memory_order_relaxed));
     }
+
+    // Измерено хотя бы одно полное окно: marginFrames() - устойчивый минимум, а не одно чтение.
+    bool fullWindow() const { return prev_.load(std::memory_order_relaxed) != kNone; }
 
     // Producer, раз на кадр: сколько сэмплов добавить (+) или убрать (-).
     int step() {

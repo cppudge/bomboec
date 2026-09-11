@@ -244,7 +244,7 @@ std::string statusText(App& app) {
                   "reference  lead %.0f ms   missing %llu   jumps %llu   gaps mic %llu / ref %llu   "
                   "resyncs mic %llu / ref %llu\r\n"
                   "output     ring %u ms (margin %u ms)   wasapi %u ms   underruns %llu   overruns %llu\r\n"
-                  "fill ctl   inserted %llu   dropped %llu samples\r\n"
+                  "fill ctl   inserted %llu   dropped %llu   trimmed %llu samples\r\n"
                   "drift      mic %+.0f ppm   ref %+.0f ppm\r\n"
                   "frames     %llu\r\n%s",
                   BOMBOEC_VERSION_FULL, s.micName.c_str(), s.micRaw ? "on" : "off",
@@ -255,8 +255,9 @@ std::string statusText(App& app) {
                   (unsigned long long)s.refJumps, (unsigned long long)s.micGaps, (unsigned long long)s.refGaps,
                   (unsigned long long)s.micResyncs, (unsigned long long)s.refResyncs, s.outBufferedMs, s.outMarginMs,
                   s.outRenderMs, (unsigned long long)s.outUnderruns, (unsigned long long)s.outOverruns,
-                  (unsigned long long)s.outInserted, (unsigned long long)s.outDropped, s.micDriftPpm, s.refDriftPpm,
-                  (unsigned long long)s.framesProcessed, s.error.empty() ? "" : ("ERROR: " + s.error).c_str());
+                  (unsigned long long)s.outInserted, (unsigned long long)s.outDropped, (unsigned long long)s.outTrimmed,
+                  s.micDriftPpm, s.refDriftPpm, (unsigned long long)s.framesProcessed,
+                  s.error.empty() ? "" : ("ERROR: " + s.error).c_str());
     return buf;
 }
 

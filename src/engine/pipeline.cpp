@@ -19,6 +19,10 @@ constexpr double kPull = 0.01;            // доля ошибки предск�
 constexpr double kSlipHysteresis = 0.75;  // целый индекс сдвигается, когда позиция ушла от него на столько
 constexpr double kRelockSamples = 480.0;  // расхождение больше 10 ms: позиция переустанавливается
 
+// Предел задержки выхода (fillOutput).
+constexpr uint32_t kSoftExcessMs = 30;   // устойчивый излишек сверх цели, после которого выбрасываем
+constexpr uint32_t kHardExcessMs = 500;  // излишек, который выбрасываем сразу, не дожидаясь окна
+
 float rmsDb(const float* x, uint32_t n) {
     double e = 0.0;
     for (uint32_t i = 0; i < n; ++i) e += double(x[i]) * x[i];
@@ -52,7 +56,11 @@ bool Pipeline::configure(const PipelineFormat& fmt, const EngineSettings& settin
     leadTicks_ = int64_t(settings_.referenceLeadMs) * 10'000;
     refKeepFrames_ = rate / 2;  // держим 500 ms истории reference позади точки чтения
     refLocked_ = false;
-    frames_ = refMissing_ = refJumps_ = outUnderruns_ = outOverruns_ = outInserted_ = outDropped_ = 0;
+    underrunsSeen_ = 0;
+    softExcessFrames_ = rate * kSoftExcessMs / 1000;
+    fadeBuf_.assign(size_t(rate / 1000) * settings_.outputChannels, 0.0f);  // кроссфейд 1 ms
+    fadePending_ = false;
+    frames_ = refMissing_ = refJumps_ = outUnderruns_ = outOverruns_ = outInserted_ = outDropped_ = outTrimmed_ = 0;
 
     if (!settings_.recordDir.empty()) {
         const std::filesystem::path dir = pathFromUtf8(settings_.recordDir);
@@ -150,6 +158,15 @@ void Pipeline::processAvailable() {
             else outDropped_.fetch_add(uint64_t(-d), std::memory_order_relaxed);
         }
 
+        // outRing опустел (микрофон стоял): запас восстанавливается тишиной сразу, а не
+        // растяжением по 4 сэмпла за кадр (10 ms запаса это 1.2 с искажённого звука).
+        const uint64_t underruns = outUnderruns_.load(std::memory_order_relaxed);
+        if (underruns != underrunsSeen_) {
+            underrunsSeen_ = underruns;
+            const uint32_t have = outRing_.readable();
+            if (have < fill_.target()) outRing_.writeSilence(fill_.target() - have);
+        }
+
         // Моно -> каналы выхода дублированием.
         const uint32_t oc = settings_.outputChannels;
         for (uint32_t i = 0; i < outFrames; ++i) {
@@ -204,23 +221,51 @@ void Pipeline::fillOutput(float* interleaved, uint32_t frames) {
         std::memset(interleaved, 0, size_t(frames) * settings_.outputChannels * sizeof(float));
         return;
     }
+    const uint32_t oc = settings_.outputChannels;
+
+    // Излишек задержки, который регулятор рассасывал бы по 4 сэмпла на кадр (200 ms
+    // за 40 с): устойчивый, то есть минимальный остаток за полное окно измерений
+    // выше цели больше чем на kSoftExcessMs (микрофон отдал накопленное после
+    // подвисания), или больше kHardExcessMs прямо сейчас (долго стоял render-поток).
+    const uint32_t target = fill_.target();
+    const uint32_t avail = outRing_.readable();
+    uint32_t excess = 0;
+    if (fill_.fullWindow() && fill_.marginFrames() > target + softExcessFrames_) {
+        excess = fill_.marginFrames() - target;
+    }
+    const uint32_t hardLimit = frames + target + fmt_.sampleRate * kHardExcessMs / 1000;
+    if (avail > hardLimit) excess = std::max(excess, avail - frames - target);
+    if (excess > 0) trimOutput(excess);
+
     const uint32_t n = outRing_.read(interleaved, frames);
+    if (fadePending_) {
+        const uint32_t k = std::min(fadeFrames_, n);
+        for (uint32_t i = 0; i < k; ++i) {
+            const float w = float(i + 1) / float(k + 1);
+            for (uint32_t c = 0; c < oc; ++c) {
+                float& x = interleaved[size_t(i) * oc + c];
+                x = fadeBuf_[size_t(i) * oc + c] * (1.0f - w) + x * w;
+            }
+        }
+        fadePending_ = false;
+    }
     if (n < frames) {
-        std::memset(interleaved + size_t(n) * settings_.outputChannels, 0,
-                    size_t(frames - n) * settings_.outputChannels * sizeof(float));
+        std::memset(interleaved + size_t(n) * oc, 0, size_t(frames - n) * oc * sizeof(float));
         outUnderruns_.fetch_add(1, std::memory_order_relaxed);
+        // Прежние измерения окна больше не про это кольцо; запас вернёт mic-поток
+        // (processAvailable), регулятору не нужно наращивать его растяжением.
+        fill_.restartWindow();
+        return;
     }
-    // Грубый сброс, если накопилось больше полусекунды сверх цели (например,
-    // после долгого стопа render-потока): плавный регулятор такое рассасывал
-    // бы минутами.
-    uint32_t left = outRing_.readable();
-    const uint32_t hardLimit = fill_.target() + fmt_.sampleRate / 2;
-    if (left > hardLimit) {
-        outRing_.discard(left - fill_.target());
-        outOverruns_.fetch_add(1, std::memory_order_relaxed);
-        left = outRing_.readable();
-    }
-    fill_.observe(left);
+    fill_.observe(outRing_.readable());
+}
+
+void Pipeline::trimOutput(uint32_t drop) {
+    fadeFrames_ = outRing_.peek(fadeBuf_.data(), uint32_t(fadeBuf_.size() / settings_.outputChannels));
+    fadePending_ = fadeFrames_ > 0;
+    outRing_.discard(drop);
+    outTrimmed_.fetch_add(drop, std::memory_order_relaxed);
+    fill_.restartWindow();
 }
 
 PipelineStats Pipeline::stats() const {
@@ -235,6 +280,7 @@ PipelineStats Pipeline::stats() const {
     s.outOverruns = outOverruns_.load();
     s.outInserted = outInserted_.load();
     s.outDropped = outDropped_.load();
+    s.outTrimmed = outTrimmed_.load();
     const uint32_t margin = fill_.marginFrames();
     s.outMarginMs = margin == FillController::kNone ? 0 : margin * 1000 / fmt_.sampleRate;
     s.micGaps = micAsm_.stats().gaps;

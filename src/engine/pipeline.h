@@ -27,6 +27,7 @@ struct PipelineStats {
     uint64_t micResyncs = 0, refResyncs = 0;  // PacketAssembler начинал таймлайн заново
     uint64_t outUnderruns = 0, outOverruns = 0;
     uint64_t outInserted = 0, outDropped = 0;  // сэмплов добавлено/убрано регулятором заполнения
+    uint64_t outTrimmed = 0;                   // сэмплов выброшено разом пределом задержки
     double micDriftPpm = 0.0, refDriftPpm = 0.0;
     uint32_t outBufferedMs = 0;  // сколько сейчас в выходном ring
     uint32_t outMarginMs = 0;    // минимальный остаток после чтения за окно (цель: output_buffer_ms)
@@ -47,7 +48,9 @@ struct PipelineStats {
 //
 // Задержка выхода: outRing держит запас output_buffer_ms после каждого чтения
 // (FillController подгоняет его растяжением кадра на 1..4 сэмпла, компенсируя
-// дрейф микрофона относительно выходного устройства).
+// дрейф микрофона относительно выходного устройства). Излишек, который регулятор
+// рассасывал бы десятки секунд (микрофон отдал накопленное после подвисания),
+// выбрасывается разом с кроссфейдом; опустевшее кольцо сразу получает запас тишиной.
 class Pipeline {
 public:
     Pipeline();
@@ -75,6 +78,9 @@ private:
     // Индекс первого сэмпла reference для очередного кадра mic. predicted: индекс по
     // таймлайнам (с джиттером меток), ratio: частота reference / частота mic.
     int64_t referencePosition(double predicted, double ratio);
+    // Render-поток: выбросить drop кадров из outRing; следующее чтение начнётся с
+    // кроссфейда из того, что прозвучало бы без выброса.
+    void trimOutput(uint32_t drop);
 
     PipelineFormat fmt_;
     EngineSettings settings_;
@@ -88,8 +94,13 @@ private:
     int64_t leadTicks_ = 0;
     uint64_t refKeepFrames_ = 0;
     bool refLocked_ = false;
-    double refPos_ = 0.0;   // сглаженная дробная позиция reference для текущего кадра
-    int64_t refIndex_ = 0;  // целый индекс чтения: следует за refPos_ с гистерезисом
+    double refPos_ = 0.0;            // сглаженная дробная позиция reference для текущего кадра
+    int64_t refIndex_ = 0;           // целый индекс чтения: следует за refPos_ с гистерезисом
+    uint64_t underrunsSeen_ = 0;     // mic-поток: сколько опустошений outRing уже восстановлено
+    uint32_t softExcessFrames_ = 0;  // излишек сверх цели, после которого выбрасываем разом
+    std::vector<float> fadeBuf_;     // render-поток: начало выброшенного куска для кроссфейда
+    uint32_t fadeFrames_ = 0;
+    bool fadePending_ = false;
 
     // debug-запись
     WavWriter recMic_, recRef_, recOut_;
@@ -97,7 +108,7 @@ private:
 
     std::atomic<float> micDb_{-100.0f}, refDb_{-100.0f}, outDb_{-100.0f};
     std::atomic<uint64_t> frames_{0}, refMissing_{0}, refJumps_{0}, outUnderruns_{0}, outOverruns_{0};
-    std::atomic<uint64_t> outInserted_{0}, outDropped_{0};
+    std::atomic<uint64_t> outInserted_{0}, outDropped_{0}, outTrimmed_{0};
 };
 
 }  // namespace bomboec

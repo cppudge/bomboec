@@ -58,6 +58,7 @@ TEST_CASE("Pipeline aligns the reference by the timeline and passes the micropho
     CHECK(s.refJumps <= 2);  // первые кадры: время t - lead раньше начала reference
     CHECK(s.outUnderruns == 0);
     CHECK(s.outOverruns == 0);
+    CHECK(s.outTrimmed == 0);
 
     const std::vector<double> errors = alignmentErrors(sim, 10);
     REQUIRE(errors.size() > 900);
@@ -70,6 +71,26 @@ TEST_CASE("Pipeline aligns the reference by the timeline and passes the micropho
     CHECK(*lo >= 20.0);
     CHECK(*hi <= 40.0);
     CHECK(*hi - *lo < 0.5);
+}
+
+TEST_CASE("Pipeline trims the output backlog of a microphone burst within seconds", "[pipeline]") {
+    PipelineSim sim;
+    // Микрофон подвис на 200 ms, потом WASAPI отдал накопленное разом.
+    sim.stallFrom = 5.0;
+    sim.stallTo = 5.2;
+    REQUIRE(sim.start());
+    sim.run(7.0);  // до 8 с
+    const uint64_t underrunsBefore = sim.pipeline.stats().outUnderruns;
+    CHECK(underrunsBefore > 0);  // пока микрофон стоял, выходу нечего было играть
+    sim.run(4.0);                // до 12 с
+
+    const PipelineStats s = sim.pipeline.stats();
+    CHECK(s.outTrimmed > 0);
+    CHECK(s.outUnderruns == underrunsBefore);  // после восстановления опустошений нет
+    // Раньше регулятор сводил +200 ms к цели около 40 с.
+    const std::vector<double> latency = outputLatencyMs(sim, 8.0);
+    REQUIRE(!latency.empty());
+    CHECK(*std::max_element(latency.begin(), latency.end()) <= 45.0);
 }
 
 TEST_CASE("Pipeline recovers from a bogus microphone timestamp without a latency jump", "[pipeline]") {

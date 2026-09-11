@@ -45,6 +45,22 @@ TEST_CASE("FillController is idle until observed", "[fill]") {
     REQUIRE(total < 0);
 }
 
+TEST_CASE("FillController restarts its window and reports a full one", "[fill]") {
+    FillController fc;
+    fc.configure(480, /*windowReads=*/3);
+    fc.observe(1000);
+    CHECK(fc.marginFrames() == 1000);
+    CHECK_FALSE(fc.fullWindow());  // одно чтение ещё не устойчивый минимум
+    fc.observe(900);
+    fc.observe(950);
+    CHECK(fc.fullWindow());
+    CHECK(fc.marginFrames() == 900);
+    fc.restartWindow();
+    CHECK(fc.marginFrames() == FillController::kNone);
+    CHECK_FALSE(fc.fullWindow());
+    CHECK(fc.step() == 0);
+}
+
 // Модель: producer пишет 480 (+d) кадров на шаг, consumer читает 480 кадров,
 // но его часы медленнее на drift ppm, т.е. раз в 1/(drift) кадров читает на
 // один меньше. Запас должен сойтись к цели и не расти со временем.
