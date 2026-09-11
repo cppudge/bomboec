@@ -57,7 +57,7 @@ config/default.toml           конфигурация конвейера по �
 src/core/                     Frame, RingBuffer, Timeline, PacketAssembler, WAV, IStage, Chain, StageRegistry, config
 src/stages/                   hpf, webrtc (AEC3 + hpf/ns/agc из APM), limiter; позже speex_aec, rnnoise, ...
 src/wasapi/                   devices, CaptureStream (mic/loopback), RenderStream (keepalive, позже cable)
-src/tools/                    apm_smoke, bomboec-rec (рекордер); далее bomboec-proc (офлайн-процессор)
+src/tools/                    apm_smoke, bomboec-rec (рекордер), bomboec-proc (офлайн-процессор)
 src/app/                      tray-приложение (этап 4)
 tests/                        Catch2
 ```
@@ -121,6 +121,21 @@ public:
 относительный дрейф микрофон/колонки около 140 ppm. Это аргумент в пользу адаптивного
 ресемплинга reference на этапе 5. Виртуальный микрофон NVIDIA Broadcast (default) не
 принимает raw mode и сам обрабатывает звук, для записей нужен физический микрофон.
+
+## Офлайн-процессор
+
+```powershell
+./build/Release/src/tools/bomboec-proc.exe --mic take/mic.wav --ref take/ref.wav --config config/default.toml --out take/out.wav --csv take/stats.csv
+```
+
+Гонит пару WAV через цепочку из конфига кадрами по 10 ms, пишет результат и раз в секунду
+печатает уровни, подавление и статистику AEC3 (delay, ERL, ERLE). В итоге: подавление на кадрах
+с активным reference, подавление на кадрах без reference (мера искажения речи, ожидается около 0 dB
+без учёта HPF) и момент, когда ERLE впервые достиг 10 dB. `--ref-offset-ms` сдвигает reference
+относительно mic для проверки статического выравнивания. CSV пригоден для построения графиков.
+
+Протокол записи для оценки AEC: 30 секунд, первые 10 только музыка из колонок, следующие 10
+музыка плюс речь в микрофон (double-talk), последние 10 только речь без музыки.
 
 ## Принципы realtime-части
 

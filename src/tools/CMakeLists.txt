@@ -5,3 +5,7 @@ target_link_libraries(apm_smoke PRIVATE webrtc-audio-processing::webrtc-audio-pr
 # Этап 2: синхронный рекордер mic + loopback.
 add_executable(bomboec-rec rec.cpp)
 target_link_libraries(bomboec-rec PRIVATE bomboec_wasapi cxxopts::cxxopts)
+
+# Этап 3: офлайн-прогон записей через цепочку.
+add_executable(bomboec-proc proc.cpp)
+target_link_libraries(bomboec-proc PRIVATE bomboec_stages cxxopts::cxxopts)
