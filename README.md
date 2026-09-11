@@ -58,13 +58,15 @@ CRT линкуется статически: exe не требуют VC++ Redist
 
 ## Запуск
 
-`bomboec.exe` живёт в трее. Рядом с exe:
+`bomboec.exe` живёт в трее. Каталог данных: рядом с exe, если там лежит `bomboec.toml` или пустой
+файл-маркер `portable` (сборка разработчика, флешка), иначе `%LOCALAPPDATA%omboec` (под
+Program Files рядом с exe писать нельзя). Путь виден в окне статуса. В каталоге:
 
 | Файл | Кто пишет | Что это |
 |---|---|---|
 | `bomboec.toml` | пользователь | конфиг; при первом запуске создаётся из встроенного `config/default.toml` |
 | `bomboec.state.toml` | приложение | устройства, выбранные в меню; его `[devices]` перекрывает `[devices]` конфига |
-| `bomboec.log`, `.log.1` | приложение | лог, ротация на 1 MB |
+| `bomboec.log`, `.log.1` | приложение | лог, ротация на 1 MB; раз в минуту строка `status:` со счётчиками движка |
 | `bomboec-*.dmp` | приложение | минидамп при падении (разбирается с `bomboec.pdb` той же сборки) |
 
 Меню: старт/стоп, выбор микрофона, колонок (reference) и выхода, окно статуса, открыть конфиг и
@@ -173,7 +175,7 @@ src/core/                     Frame, RingBuffer, Timeline, PacketAssembler, Fill
 src/stages/                   hpf, webrtc (AEC3 + hpf/ns/agc из APM), rnnoise, limiter
 src/wasapi/                   устройства, CaptureStream (mic/loopback), RenderStream (keepalive, выход)
 src/engine/                   Pipeline (DSP без устройств), Engine (Pipeline + WASAPI), Watchdog, Recorder
-src/app/                      bomboec.exe (трей), минидампы
+src/app/                      bomboec.exe (трей), каталог данных, минидампы
 src/tools/                    bomboec-rec, bomboec-proc, bomboec-run, bomboec-play, apm_smoke
 driver/                       драйвер кабеля bomboec_cable.sys
 tests/                        Catch2: модули, fakes/ (WASAPI), sim/ (симулятор конвейера), corpus/ (манифест эталонов)
@@ -190,7 +192,7 @@ tests/                        Catch2: модули, fakes/ (WASAPI), sim/ (си�
 | 4a. Realtime (готово) | движок на mic-потоке, reference по таймлайну, трей с диагностикой |
 | 4b. Virtual cable (готово) | драйвер на базе SimpleAudioSample, сборка через CMake, test-signing |
 | 4c. Задержка (готово) | обрезка backlog'а кабеля, prime 10 ms, целевое заполнение выхода, регулятор |
-| 5. Устойчивость (частично) | сделано: watchdog с backoff, ресинхронизация таймлайнов, непрерывный reference, предел задержки, защита от петель, минидампы, reference необязателен, уведомления об устройствах (IMMNotificationClient). Осталось: малые периоды IAudioClient3, адаптивный ресемплинг reference, суточный прогон, каталог данных в %LOCALAPPDATA% (к инсталлятору) |
+| 5. Устойчивость (частично) | сделано: watchdog с backoff, ресинхронизация таймлайнов, непрерывный reference, предел задержки, защита от петель, минидампы, reference необязателен, уведомления об устройствах (IMMNotificationClient), каталог данных в %LOCALAPPDATA% с портативным режимом, строка статуса в лог раз в минуту. Осталось: суточный прогон, малые периоды IAudioClient3, адаптивный ресемплинг reference |
 | 6. Второй бэкенд (частично) | сделано: рецепт и стадия rnnoise, сравнение на корпусе. Осталось: speexdsp как дешёвый второй AEC, опционально DLL-плагины |
 | 7. Дистрибуция | установщик, attestation-подпись драйвера (или VB-Cable), автозапуск |
 

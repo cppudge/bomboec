@@ -1,8 +1,9 @@
 // bomboec: tray-приложение вокруг Engine.
 //
-// Конфиг: bomboec.toml рядом с exe (создаётся из config/default.toml, встроенного при сборке).
-// Лог: bomboec.log рядом с exe. Один экземпляр: повторный запуск показывает
-// окно статуса уже работающего.
+// Каталог данных (app/paths.h): рядом с exe, если там есть bomboec.toml или маркер `portable`,
+// иначе %LOCALAPPDATA%\bomboec. В нём bomboec.toml (создаётся из config/default.toml,
+// встроенного при сборке), bomboec.state.toml, bomboec.log и минидампы. Один экземпляр:
+// повторный запуск показывает окно статуса уже работающего.
 // Меню в трее: старт/стоп, выбор микрофона, колонок (reference) и выхода,
 // окно статуса, открыть конфиг, выход. Выбор устройства сохраняется в
 // bomboec.state.toml (id и имя; конфиг приложение не переписывает) и
@@ -14,6 +15,7 @@
 // через FindWindow из второго экземпляра.
 
 #include "app/crash_dump.h"
+#include "app/paths.h"
 #include "core/config.h"
 #include "core/utf8.h"
 #include "engine/engine.h"
@@ -29,6 +31,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -49,6 +52,7 @@ constexpr UINT_PTR kWatchdogTimer = 2;
 constexpr UINT_PTR kDeviceTimer = 3;  // дебаунс уведомлений об устройствах
 constexpr UINT kDeviceDebounceMs = 500;
 constexpr uintmax_t kLogRotateBytes = 1 << 20;  // bomboec.log -> bomboec.log.1
+constexpr uint32_t kStatusLogEverySec = 60;     // строка статуса в лог: суточный прогон без окна
 constexpr UINT ID_TOGGLE = 100, ID_STATUS = 101, ID_CONFIG = 102, ID_RELOAD = 103, ID_EXIT = 104, ID_LOG = 105;
 constexpr UINT ID_MIC_BASE = 1000, ID_SPK_BASE = 2000, ID_OUT_BASE = 3000;
 const wchar_t* kTrayClass = L"BomboecTray";
@@ -75,19 +79,14 @@ struct App {
     std::vector<ws::DeviceInfo> menuCapDevices, menuRenDevices;
     std::string lastError;
     bool wantRunning = true;
-    uint64_t refRetryAtMs = 0;  // когда снова пробовать открыть reference (loopback колонок)
-    bool refWarned = false;     // об отсутствии reference уже сообщили
+    uint64_t refRetryAtMs = 0;    // когда снова пробовать открыть reference (loopback колонок)
+    bool refWarned = false;       // об отсутствии reference уже сообщили
+    uint32_t statusLogTicks = 0;  // секунд с последней строки статуса в логе
 };
 
 constexpr uint64_t kRefRetryMs = 5000;
 
 App* gApp = nullptr;
-
-std::filesystem::path exeDir() {
-    wchar_t buf[MAX_PATH];
-    GetModuleFileNameW(nullptr, buf, MAX_PATH);
-    return std::filesystem::path(buf).parent_path();
-}
 
 void logLine(App& app, const std::string& text) {
     std::error_code ec;
@@ -445,6 +444,27 @@ void retryReference(App& app, const EngineStatus& s, uint64_t now) {
 
 // Раз в секунду: иконка трея, если оболочка была не готова, и решения Watchdog
 // (перезапуск после ошибки потока или зависания, повтор неудачного старта с backoff).
+// Раз в минуту, пока движок работает: одна строка со счётчиками, по которой после суточного
+// прогона видно медленные эффекты (рост fill ctl и trimmed, ресинки, пропажа reference).
+void logStatusLine(App& app, const EngineStatus& s) {
+    auto num = [](const std::optional<double>& v) {
+        return v ? std::to_string(int(std::lround(*v))) : std::string("-");
+    };
+    char line[512];
+    std::snprintf(line, sizeof(line),
+                  "status: mic %.0f ref %.0f out %.0f dBFS, aec delay %s erle %s, ref %s missing %llu jumps %llu "
+                  "gaps %llu/%llu resyncs %llu/%llu, out %u ms margin %u under %llu over %llu fill +%llu/-%llu "
+                  "trim %llu, drift %+.0f/%+.0f ppm, frames %llu%s",
+                  s.micDb, s.refDb, s.outDb, num(s.stats.delayMs).c_str(), num(s.stats.erleDb).c_str(),
+                  s.referenceActive ? "on" : "off", (unsigned long long)s.refMissing, (unsigned long long)s.refJumps,
+                  (unsigned long long)s.micGaps, (unsigned long long)s.refGaps, (unsigned long long)s.micResyncs,
+                  (unsigned long long)s.refResyncs, s.outBufferedMs, s.outMarginMs, (unsigned long long)s.outUnderruns,
+                  (unsigned long long)s.outOverruns, (unsigned long long)s.outInserted,
+                  (unsigned long long)s.outDropped, (unsigned long long)s.outTrimmed, s.micDriftPpm, s.refDriftPpm,
+                  (unsigned long long)s.framesProcessed, s.warning.empty() ? "" : (", warning: " + s.warning).c_str());
+    logLine(app, line);
+}
+
 void watchdogTick(App& app) {
     if (!app.trayAdded) addTrayIcon(app);
     if (!app.wantRunning) return;
@@ -453,6 +473,10 @@ void watchdogTick(App& app) {
     if (s.running && !app.audioLogged && s.framesProcessed > 0) {
         app.audioLogged = true;
         logLine(app, std::string("audio running: mmcss ") + (s.mmcss ? "on" : "off"));
+    }
+    if (s.running && ++app.statusLogTicks >= kStatusLogEverySec) {
+        app.statusLogTicks = 0;
+        logStatusLine(app, s);
     }
     retryReference(app, s, now);
     switch (app.watchdog.tick(now, s.running, !s.error.empty(), s.framesProcessed)) {
@@ -564,7 +588,8 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
 
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     // Дамп падения рядом с логом: bomboec-<время>-<pid>.dmp (разбирается с bomboec.pdb).
-    bomboec::crash::install(exeDir());
+    const std::filesystem::path dataDir = bomboec::app::dataDirectory();
+    bomboec::crash::install(dataDir);
 
     // Один экземпляр: второй запуск показывает окно статуса первого. Первый мог
     // захватить mutex, но ещё не создать окно: ждём его до 2 с.
@@ -585,9 +610,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     {
         App app;
         gApp = &app;
-        app.configPath = exeDir() / "bomboec.toml";
-        app.statePath = exeDir() / "bomboec.state.toml";
-        app.logPath = exeDir() / "bomboec.log";
+        app.configPath = dataDir / "bomboec.toml";
+        app.statePath = dataDir / "bomboec.state.toml";
+        app.logPath = dataDir / "bomboec.log";
         logLine(app, "start " BOMBOEC_VERSION_FULL);
 
         WNDCLASSW wc{};

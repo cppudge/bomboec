@@ -4,12 +4,18 @@ add_library(bomboec::crash ALIAS bomboec_crash)
 target_include_directories(bomboec_crash PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(bomboec_crash PRIVATE bomboec::options dbghelp)
 
+# Каталог данных (портативный режим или %LOCALAPPDATA%): отдельная библиотека ради теста.
+add_library(bomboec_app_paths STATIC paths.h paths.cpp)
+add_library(bomboec::app_paths ALIAS bomboec_app_paths)
+target_include_directories(bomboec_app_paths PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(bomboec_app_paths PRIVATE bomboec::options shell32 ole32)
+
 # Ресурс версии (свойства файла в проводнике): версия из project() в корневом CMakeLists.txt.
 configure_file(bomboec.rc.in "${CMAKE_CURRENT_BINARY_DIR}/bomboec.rc" @ONLY)
 
 add_executable(bomboec WIN32 main.cpp "${CMAKE_CURRENT_BINARY_DIR}/bomboec.rc" "${BOMBOEC_MANIFEST}")
 target_link_libraries(bomboec PRIVATE
-    bomboec::options bomboec::engine bomboec::wasapi bomboec::crash shell32 user32 gdi32 ole32
+    bomboec::options bomboec::engine bomboec::wasapi bomboec::crash bomboec::app_paths shell32 user32 gdi32 ole32
 )
 
 # version.h (версия и git describe для лога, окна статуса и ресурса) обновляется на каждой сборке.
