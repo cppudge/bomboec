@@ -27,15 +27,28 @@
             "description": "First configure builds Debug dependencies from source.",
             "inherits": "base",
             "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+        },
+        {
+            "name": "asan",
+            "displayName": "Ninja Debug + AddressSanitizer",
+            "description": "Debug with /fsanitize=address for our targets; shares the Conan Debug packages with the debug preset. /RTC1 is incompatible with ASan and removed.",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "BOMBOEC_ASAN": "ON",
+                "CMAKE_CXX_FLAGS_DEBUG": "/Ob0 /Od"
+            }
         }
     ],
     "buildPresets": [
         { "name": "release", "configurePreset": "release" },
-        { "name": "debug", "configurePreset": "debug" }
+        { "name": "debug", "configurePreset": "debug" },
+        { "name": "asan", "configurePreset": "asan" }
     ],
     "testPresets": [
         { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } },
-        { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } }
+        { "name": "debug", "configurePreset": "debug", "output": { "outputOnFailure": true } },
+        { "name": "asan", "configurePreset": "asan", "output": { "outputOnFailure": true } }
     ],
     "workflowPresets": [
         {
@@ -52,6 +65,14 @@
                 { "type": "configure", "name": "debug" },
                 { "type": "build", "name": "debug" },
                 { "type": "test", "name": "debug" }
+            ]
+        },
+        {
+            "name": "asan",
+            "steps": [
+                { "type": "configure", "name": "asan" },
+                { "type": "build", "name": "asan" },
+                { "type": "test", "name": "asan" }
             ]
         }
     ]

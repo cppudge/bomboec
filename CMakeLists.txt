@@ -44,6 +44,8 @@ set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "Embedded")
 # Код чист на /W4, поэтому предупреждения по умолчанию ошибки. -DBOMBOEC_WERROR=OFF, если новый
 # компилятор найдёт что-то раньше, чем это успеют поправить.
 option(BOMBOEC_WERROR "Treat compiler warnings as errors" ON)
+# AddressSanitizer (пресет asan): только наши цели, зависимости из Conan собраны без него.
+option(BOMBOEC_ASAN "Build with AddressSanitizer (/fsanitize=address)" OFF)
 
 # Общие флаги и макросы для всех наших целей: каждая линкует bomboec::options (PRIVATE).
 add_library(bomboec_options INTERFACE)
@@ -56,6 +58,12 @@ if(MSVC)
     target_compile_definitions(bomboec_options INTERFACE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
     # PDB и для Release; /DEBUG выключает /OPT:REF и /OPT:ICF, поэтому они указаны явно.
     target_link_options(bomboec_options INTERFACE "$<$<CONFIG:Release>:/DEBUG;/OPT:REF;/OPT:ICF>")
+    if(BOMBOEC_ASAN)
+        # Аннотации контейнеров STL выключены: зависимости собраны без ASan, иначе
+        # LNK2038 (annotate_*) против abseil. Библиотеки ASan линкер выбирает сам.
+        target_compile_options(bomboec_options INTERFACE "$<$<COMPILE_LANGUAGE:CXX>:/fsanitize=address>")
+        target_compile_definitions(bomboec_options INTERFACE _DISABLE_STL_ANNOTATION)
+    endif()
 endif()
 # Манифест для каждого add_executable: кодовая страница процесса UTF-8 (см. сам файл).
 set(BOMBOEC_MANIFEST "${PROJECT_SOURCE_DIR}/cmake/utf8.manifest")

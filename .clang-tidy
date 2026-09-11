@@ -1,8 +1,8 @@
 # Набор проверок clang-tidy проекта. Его же читает clangd (.clangd) для подсказок в редакторе,
 # полная проверка по базе компиляции build/ninja-release: pwsh scripts/check.ps1.
 #
-# Набор намеренно узкий: ошибкоопасные конструкции, производительность, многопоточность, единое
-# именование и несколько дешёвых модернизаций. Широкие readability-* и cppcoreguidelines-* на этом
+# Набор намеренно узкий: ошибкоопасные конструкции, статический анализатор clang, производительность,
+# многопоточность, единое именование и несколько дешёвых модернизаций. Широкие readability-* и cppcoreguidelines-* на этом
 # коде в основном шум (magic numbers в DSP, длина имён, trailing return type, C-style cast).
 #
 # Отключено намеренно:
@@ -10,6 +10,8 @@
 #   bugprone-narrowing-conversions: DSP постоянно переходит между float, double и uint32_t.
 #   bugprone-random-generator-seed: тестовые сигналы строятся с фиксированным seed ради
 #     воспроизводимости.
+#   clang-analyzer-optin.core.EnumCastOutOfRange: битовая маска во флаговом enum (MINIDUMP_TYPE,
+#     флаги STL и Catch2) для него всегда "вне диапазона".
 #   performance-enum-size: перечисления не хранятся массивами.
 #   performance-inefficient-string-concatenation: срабатывает только на сборку сообщений об ошибках.
 Checks: >
@@ -18,6 +20,8 @@ Checks: >
   -bugprone-easily-swappable-parameters,
   -bugprone-narrowing-conversions,
   -bugprone-random-generator-seed,
+  clang-analyzer-*,
+  -clang-analyzer-optin.core.EnumCastOutOfRange,
   performance-*,
   -performance-enum-size,
   -performance-inefficient-string-concatenation,

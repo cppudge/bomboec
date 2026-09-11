@@ -1,0 +1,19 @@
+{
+    "version": "0.5",
+    "requires": [
+        "webrtc-audio-processing/2.1#efa06687069ecec67ada8d49b213c88c%1789151483.1105943",
+        "tomlplusplus/3.4.0#85dbfed71376fb8dc23cdcc0570e4727%1718732132.076",
+        "dr_libs/cci.20230529#dffd6b7e8da3d949865924cfba9fa731%1688112514.175",
+        "cxxopts/3.3.1#047ef7b8ae49e0d48a1450f4522dc041%1748330656.693",
+        "catch2/3.16.0#95f400ca2fba9f0c5ce5aea6e6fe0055%1788523836.458",
+        "abseil/20240722.1#23fab6de6fb8f7dec1256e65e4dc3f5e%1773137905.064"
+    ],
+    "build_requires": [
+        "pkgconf/2.5.1#93c2051284cba1279494a43a4fcfeae2%1757684701.089",
+        "ninja/1.13.2#c8c5dc2a52ed6e4e42a66d75b4717ceb%1764096931.974",
+        "meson/1.10.2#9d2d10681fe7fe61c788c58626c89b25%1775558003.754",
+        "cmake/4.4.3#c5b4d075979c7cb5d9649861acad0efe%1788855208.145"
+    ],
+    "python_requires": [],
+    "config_requires": []
+}
