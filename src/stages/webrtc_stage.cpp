@@ -98,6 +98,7 @@ public:
         refCfg_ = webrtc::StreamConfig(int(fmt.sampleRate), size_t(fmt.referenceChannels));
         refScratch_.resize(fmt.referenceChannels, fmt.frameSamples);
         silence_.resize(fmt.referenceChannels, fmt.frameSamples);
+        errors_ = 0;
         return true;
     }
 
@@ -105,9 +106,14 @@ public:
         if (hasCap(caps_, Cap::Aec)) {
             // Reverse stream нужен каждый кадр, иначе AEC3 теряет таймлайн render.
             const Frame& ref = reference ? *reference : silence_;
-            apm_->ProcessReverseStream(ref.planes(), refCfg_, refCfg_, refScratch_.planes());
+            if (apm_->ProcessReverseStream(ref.planes(), refCfg_, refCfg_, refScratch_.planes()) !=
+                webrtc::AudioProcessing::kNoError) {
+                ++errors_;
+            }
         }
-        apm_->ProcessStream(mic.planes(), micCfg_, micCfg_, mic.planes());
+        if (apm_->ProcessStream(mic.planes(), micCfg_, micCfg_, mic.planes()) != webrtc::AudioProcessing::kNoError) {
+            ++errors_;
+        }
     }
 
     void reset() override {
@@ -120,6 +126,7 @@ public:
     StageStats stats() const override {
         StageStats s;
         if (!apm_) return s;
+        s.errors = errors_;
         const webrtc::AudioProcessingStats st = apm_->GetStatistics();
         if (st.delay_ms) s.delayMs = double(*st.delay_ms);
         if (st.echo_return_loss) s.erlDb = *st.echo_return_loss;
@@ -137,6 +144,7 @@ private:
     webrtc::StreamConfig refCfg_;
     Frame refScratch_;
     Frame silence_;
+    uint64_t errors_ = 0;  // вызовов APM, вернувших ошибку
 };
 
 }  // namespace

@@ -4,6 +4,9 @@ add_library(bomboec_core STATIC
     ring_buffer.h
     timeline.h
     packet_assembler.h
+    fill_controller.h
+    seqlock.h
+    denormals.h
     stage.h
     stage.cpp
     registry.h

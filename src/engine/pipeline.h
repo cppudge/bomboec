@@ -7,6 +7,7 @@
 #include "core/frame.h"
 #include "core/packet_assembler.h"
 #include "core/ring_buffer.h"
+#include "core/seqlock.h"
 #include "core/wav.h"
 
 #include <atomic>
@@ -109,6 +110,9 @@ private:
     std::atomic<float> micDb_{-100.0f}, refDb_{-100.0f}, outDb_{-100.0f};
     std::atomic<uint64_t> frames_{0}, refMissing_{0}, refJumps_{0}, outUnderruns_{0}, outOverruns_{0};
     std::atomic<uint64_t> outInserted_{0}, outDropped_{0}, outTrimmed_{0};
+    // Статистику стадий снимает mic-поток (stats() стадий зовётся только из него), читает любой.
+    SeqLock<StageStats> chainStats_;
+    uint32_t chainStatsFrames_ = 0;
 };
 
 }  // namespace bomboec

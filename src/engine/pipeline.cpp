@@ -1,5 +1,6 @@
 #include "engine/pipeline.h"
 
+#include "core/denormals.h"
 #include "core/utf8.h"
 
 #include <algorithm>
@@ -22,6 +23,8 @@ constexpr double kRelockSamples = 480.0;  // расхождение больше
 // Предел задержки выхода (fillOutput).
 constexpr uint32_t kSoftExcessMs = 30;   // устойчивый излишек сверх цели, после которого выбрасываем
 constexpr uint32_t kHardExcessMs = 500;  // излишек, который выбрасываем сразу, не дожидаясь окна
+
+constexpr uint32_t kChainStatsEveryFrames = 10;  // снимок статистики стадий для окна статуса: раз в 100 ms
 
 float rmsDb(const float* x, uint32_t n) {
     double e = 0.0;
@@ -60,6 +63,8 @@ bool Pipeline::configure(const PipelineFormat& fmt, const EngineSettings& settin
     softExcessFrames_ = rate * kSoftExcessMs / 1000;
     fadeBuf_.assign(size_t(rate / 1000) * settings_.outputChannels, 0.0f);  // кроссфейд 1 ms
     fadePending_ = false;
+    chainStats_.store({});
+    chainStatsFrames_ = 0;
     frames_ = refMissing_ = refJumps_ = outUnderruns_ = outOverruns_ = outInserted_ = outDropped_ = outTrimmed_ = 0;
 
     if (!settings_.recordDir.empty()) {
@@ -97,6 +102,7 @@ void Pipeline::onRefPacket(const float* interleaved, uint32_t frames, int64_t ti
 }
 
 void Pipeline::onMicPacket(const float* interleaved, uint32_t frames, int64_t ticks, PacketFlags flags) {
+    const ScopedFlushDenormals denormals;
     micAsm_.push(interleaved, frames, ticks, flags);
     processAvailable();
 }
@@ -137,7 +143,13 @@ void Pipeline::processAvailable() {
             recRef_.write(refBuf_.data(), frame);
         }
 
-        if (chain_) chain_->process(micFrame_, &refFrame_);
+        if (chain_) {
+            chain_->process(micFrame_, &refFrame_);
+            if (++chainStatsFrames_ >= kChainStatsEveryFrames) {
+                chainStatsFrames_ = 0;
+                chainStats_.store(chain_->stats());
+            }
+        }
 
         outDb_.store(rmsDb(micFrame_.planes()[0], frame), std::memory_order_relaxed);
         if (recording_) {
@@ -283,16 +295,18 @@ PipelineStats Pipeline::stats() const {
     s.outTrimmed = outTrimmed_.load();
     const uint32_t margin = fill_.marginFrames();
     s.outMarginMs = margin == FillController::kNone ? 0 : margin * 1000 / fmt_.sampleRate;
-    s.micGaps = micAsm_.stats().gaps;
-    s.refGaps = refAsm_.stats().gaps;
-    s.micResyncs = micAsm_.stats().resyncs;
-    s.refResyncs = refAsm_.stats().resyncs;
+    const PacketAssembler::Stats mic = micAsm_.statsSnapshot();
+    const PacketAssembler::Stats ref = refAsm_.statsSnapshot();
+    s.micGaps = mic.gaps;
+    s.refGaps = ref.gaps;
+    s.micResyncs = mic.resyncs;
+    s.refResyncs = ref.resyncs;
     s.micDriftPpm = micAsm_.timelineSnapshot().driftPpm();
     s.refDriftPpm = refAsm_.timelineSnapshot().driftPpm();
     s.outBufferedMs = outRing_.readable() * 1000 / fmt_.sampleRate;
     return s;
 }
 
-StageStats Pipeline::chainStats() const { return chain_ ? chain_->stats() : StageStats{}; }
+StageStats Pipeline::chainStats() const { return chainStats_.load(); }
 
 }  // namespace bomboec

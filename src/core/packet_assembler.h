@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/ring_buffer.h"
+#include "core/seqlock.h"
 #include "core/timeline.h"
 
 #include <algorithm>
@@ -34,7 +35,9 @@ struct PacketFlags {
 // он проявляется только в Timeline::driftPpm(). Цена: разрыв короче порога
 // не обнаруживается. Порог должен быть больше джиттера меток.
 //
-// Вызывается из потока-producer соответствующего RingBuffer.
+// push() вызывается из потока-producer соответствующего RingBuffer. Таймлайн и
+// статистику он публикует через SeqLock: другие потоки читают снимки и никогда
+// не задерживают producer.
 class PacketAssembler {
 public:
     struct Stats {
@@ -50,6 +53,7 @@ public:
         double maxJitterMs = 0.0;      // максимальное |ожидаемое - реальное| ниже порога
     };
 
+    // Как reset(): только когда push() не вызывается.
     void configure(double nominalRate, double ticksPerSecond, RingBuffer* ring, double gapThresholdMs = 2.5,
                    double resyncThresholdMs = 200.0) {
         rate_ = nominalRate;
@@ -62,12 +66,13 @@ public:
     }
 
     void reset() {
-        const SpinGuard g(lock_);
         started_.store(false, std::memory_order_release);
         originTicks_ = 0;
         expectedTicks_ = 0;
         stats_ = {};
         timeline_.reset();
+        publishedTimeline_.store(timeline_);
+        publishedStats_.store(stats_);
     }
 
     // interleaved содержит frames фреймов с числом каналов ring->channels().
@@ -117,44 +122,35 @@ public:
         // пакету и якорь не ставится (кроме ресинхронизации: там отсчёт начинается заново).
         if (written > 0 || resync) {
             const uint64_t firstIndex = ring_->totalWritten() - written;
-            const SpinGuard g(lock_);
             if (resync) timeline_.reset();
             timeline_.anchor(ticks + std::llround(double(skip) / rate_ * tps_), firstIndex);
+            publishedTimeline_.store(timeline_);
             started_.store(true, std::memory_order_release);
         }
+        publishedStats_.store(stats_);
 
         expectedTicks_ = ticks + std::llround(double(frames) / rate_ * tps_);
     }
 
-    // Потокобезопасно относительно push(): читается из потока-consumer.
+    // Из любого потока.
     bool started() const { return started_.load(std::memory_order_acquire); }
-    int64_t originTicks() const { return originTicks_; }
-    Timeline timelineSnapshot() const {
-        const SpinGuard g(lock_);
-        return timeline_;
-    }
+    Timeline timelineSnapshot() const { return publishedTimeline_.load(); }
+    Stats statsSnapshot() const { return publishedStats_.load(); }
+
     // Только из потока-producer или когда push() не вызывается.
+    int64_t originTicks() const { return originTicks_; }
     const Timeline& timeline() const { return timeline_; }
     const Stats& stats() const { return stats_; }
 
 private:
-    struct SpinGuard {
-        explicit SpinGuard(std::atomic_flag& f) : flag(f) {
-            while (flag.test_and_set(std::memory_order_acquire)) {}
-        }
-        ~SpinGuard() { flag.clear(std::memory_order_release); }
-        SpinGuard(const SpinGuard&) = delete;
-        SpinGuard& operator=(const SpinGuard&) = delete;
-        std::atomic_flag& flag;
-    };
-
     double rate_ = 48000.0;
     double tps_ = 1e7;
     RingBuffer* ring_ = nullptr;
     int64_t thresholdSamples_ = 120;
     int64_t resyncSamples_ = 9600;
     Timeline timeline_;
-    mutable std::atomic_flag lock_;
+    SeqLock<Timeline> publishedTimeline_;
+    SeqLock<Stats> publishedStats_;
     std::atomic<bool> started_{false};
     int64_t originTicks_ = 0;
     int64_t expectedTicks_ = 0;

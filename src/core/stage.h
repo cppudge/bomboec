@@ -33,12 +33,14 @@ struct StageInfo {
 };
 
 // Диагностика стадии. Поля заполняются теми стадиями, у которых они есть.
+// Тривиально копируемая: Pipeline публикует снимок через SeqLock.
 struct StageStats {
     std::optional<double> delayMs;
     std::optional<double> erlDb;
     std::optional<double> erleDb;
     std::optional<double> residualEchoLikelihood;
     std::optional<double> gainDb;
+    uint64_t errors = 0;  // кадров, которые бэкенд вернул с ошибкой (Chain суммирует)
 };
 
 class IStage {
@@ -58,6 +60,8 @@ public:
     // Сброс внутреннего состояния (смена устройства, разрыв потока).
     virtual void reset() = 0;
 
+    // process(), reset() и stats() вызываются из одного аудиопотока; окно статуса
+    // видит снимок, который публикует Pipeline. Поэтому стадии не нужна синхронизация.
     virtual StageStats stats() const = 0;
 };
 

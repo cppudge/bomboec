@@ -240,7 +240,7 @@ std::string statusText(App& app) {
                   "bomboec %s: running\r\nmic:       %s (raw %s, %s)\r\nreference: %s (%s)\r\noutput:    %s\r\n"
                   "threads:   mmcss %s\r\n\r\n"
                   "levels     mic %6.1f   ref %6.1f   out %6.1f dBFS\r\n"
-                  "aec        delay %s   erl %s   erle %s\r\n"
+                  "aec        delay %s   erl %s   erle %s   errors %llu\r\n"
                   "reference  lead %.0f ms   missing %llu   jumps %llu   gaps mic %llu / ref %llu   "
                   "resyncs mic %llu / ref %llu\r\n"
                   "output     ring %u ms (margin %u ms)   wasapi %u ms   underruns %llu   overruns %llu\r\n"
@@ -251,13 +251,13 @@ std::string statusText(App& app) {
                   s.micEventDriven ? "event" : "polling", s.speakersName.c_str(),
                   s.refEventDriven ? "event" : "polling", s.outputName.c_str(), s.mmcss ? "on" : "off", s.micDb,
                   s.refDb, s.outDb, opt(s.stats.delayMs, "ms").c_str(), opt(s.stats.erlDb, "dB").c_str(),
-                  opt(s.stats.erleDb, "dB").c_str(), s.referenceLeadMs, (unsigned long long)s.refMissing,
-                  (unsigned long long)s.refJumps, (unsigned long long)s.micGaps, (unsigned long long)s.refGaps,
-                  (unsigned long long)s.micResyncs, (unsigned long long)s.refResyncs, s.outBufferedMs, s.outMarginMs,
-                  s.outRenderMs, (unsigned long long)s.outUnderruns, (unsigned long long)s.outOverruns,
-                  (unsigned long long)s.outInserted, (unsigned long long)s.outDropped, (unsigned long long)s.outTrimmed,
-                  s.micDriftPpm, s.refDriftPpm, (unsigned long long)s.framesProcessed,
-                  s.error.empty() ? "" : ("ERROR: " + s.error).c_str());
+                  opt(s.stats.erleDb, "dB").c_str(), (unsigned long long)s.stats.errors, s.referenceLeadMs,
+                  (unsigned long long)s.refMissing, (unsigned long long)s.refJumps, (unsigned long long)s.micGaps,
+                  (unsigned long long)s.refGaps, (unsigned long long)s.micResyncs, (unsigned long long)s.refResyncs,
+                  s.outBufferedMs, s.outMarginMs, s.outRenderMs, (unsigned long long)s.outUnderruns,
+                  (unsigned long long)s.outOverruns, (unsigned long long)s.outInserted,
+                  (unsigned long long)s.outDropped, (unsigned long long)s.outTrimmed, s.micDriftPpm, s.refDriftPpm,
+                  (unsigned long long)s.framesProcessed, s.error.empty() ? "" : ("ERROR: " + s.error).c_str());
     return buf;
 }
 

@@ -55,6 +55,7 @@ StageStats Chain::stats() const {
             out.residualEchoLikelihood = s.residualEchoLikelihood;
         }
         if (!out.gainDb && s.gainDb) out.gainDb = s.gainDb;
+        out.errors += s.errors;
     }
     return out;
 }

@@ -226,8 +226,9 @@ int run(int argc, char** argv) {
             const double elapsed = std::chrono::duration<double>(now - startWall).count();
             std::printf("\r%5.1f s  mic %llu  ref %llu  gaps %llu/%llu  drift %+.1f/%+.1f ppm   ", elapsed,
                         (unsigned long long)mic.written, (unsigned long long)ref.written,
-                        (unsigned long long)mic.assembler.stats().gaps, (unsigned long long)ref.assembler.stats().gaps,
-                        mic.assembler.timeline().driftPpm(), ref.assembler.timeline().driftPpm());
+                        (unsigned long long)mic.assembler.statsSnapshot().gaps,
+                        (unsigned long long)ref.assembler.statsSnapshot().gaps,
+                        mic.assembler.timelineSnapshot().driftPpm(), ref.assembler.timelineSnapshot().driftPpm());
             std::fflush(stdout);
         }
         if (!micStream.lastError().empty() || !refStream.lastError().empty()) {
