@@ -44,6 +44,7 @@ bool Engine::start(const AppConfig& cfg, std::string& error) {
     if (!spkDev) return false;
     const ws::ComPtr<IMMDevice> outDev = ws::openDevice(ws::Flow::Render, ws::fromUtf8(settings_.outputId), error);
     if (!outDev) return false;
+    const ws::DeviceInfo micInfo = ws::describeDevice(micDev.Get());
     const ws::DeviceInfo spkInfo = ws::describeDevice(spkDev.Get());
     const ws::DeviceInfo outInfo = ws::describeDevice(outDev.Get());
     if (spkInfo.id == outInfo.id) {
@@ -51,10 +52,18 @@ bool Engine::start(const AppConfig& cfg, std::string& error) {
         error = "output device must differ from the reference speakers (" + ws::toUtf8(outInfo.name) + ")";
         return false;
     }
+    if (ws::sameVirtualDevice(micInfo, outInfo)) {
+        // Микрофон кабеля при выходе в тот же кабель: движок слушал бы сам себя и молча выдавал
+        // тишину. Типично сразу после установки драйвера: Windows делает кабель устройством
+        // по умолчанию и для ввода.
+        error = "microphone '" + ws::toUtf8(micInfo.name) + "' is the other end of the output '" +
+                ws::toUtf8(outInfo.name) + "' (digital loop): choose the physical microphone";
+        return false;
+    }
     {
         const std::scoped_lock g(infoMutex_);
         info_ = {};
-        info_.micName = ws::toUtf8(ws::describeDevice(micDev.Get()).name);
+        info_.micName = ws::toUtf8(micInfo.name);
         info_.speakersName = ws::toUtf8(spkInfo.name);
         info_.outputName = ws::toUtf8(outInfo.name);
         info_.referenceLeadMs = settings_.referenceLeadMs;

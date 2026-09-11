@@ -4,11 +4,26 @@
 #include <functiondiscoverykeys_devpkey.h>
 #include <propvarutil.h>
 
+#include <cwchar>
+
 namespace bomboec::wasapi {
 
 namespace {
 
+// PKEY_Device_EnumeratorName в devpkey.h объявлен как DEVPROPKEY, IPropertyStore нужен PROPERTYKEY.
+constexpr PROPERTYKEY kEnumeratorName = {{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}},
+                                         24};
+
 EDataFlow toFlow(Flow f) { return f == Flow::Capture ? eCapture : eRender; }
+
+std::wstring readString(IPropertyStore* props, const PROPERTYKEY& key) {
+    PROPVARIANT v;
+    PropVariantInit(&v);
+    std::wstring out;
+    if (SUCCEEDED(props->GetValue(key, &v)) && v.vt == VT_LPWSTR) out = v.pwszVal;
+    PropVariantClear(&v);
+    return out;
+}
 
 ComPtr<IMMDeviceEnumerator> makeEnumerator(std::string& error) {
     ComPtr<IMMDeviceEnumerator> en;
@@ -34,14 +49,18 @@ DeviceInfo describeDevice(IMMDevice* device) {
     info.id = deviceId(device);
     ComPtr<IPropertyStore> props;
     if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, &props))) {
-        PROPVARIANT v;
-        PropVariantInit(&v);
-        if (SUCCEEDED(props->GetValue(PKEY_Device_FriendlyName, &v)) && v.vt == VT_LPWSTR) {
-            info.name = v.pwszVal;
-        }
-        PropVariantClear(&v);
+        info.name = readString(props.Get(), PKEY_Device_FriendlyName);
+        info.adapter = readString(props.Get(), PKEY_DeviceInterface_FriendlyName);
+        info.enumerator = readString(props.Get(), kEnumeratorName);
     }
     return info;
+}
+
+bool sameVirtualDevice(const DeviceInfo& a, const DeviceInfo& b) {
+    const auto isVirtual = [](const std::wstring& e) {
+        return _wcsicmp(e.c_str(), L"ROOT") == 0 || _wcsicmp(e.c_str(), L"SWD") == 0;
+    };
+    return !a.adapter.empty() && a.adapter == b.adapter && isVirtual(a.enumerator) && isVirtual(b.enumerator);
 }
 
 std::vector<DeviceInfo> enumerateDevices(Flow flow, std::string& error) {

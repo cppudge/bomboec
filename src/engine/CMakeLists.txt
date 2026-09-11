@@ -1,6 +1,7 @@
 add_library(bomboec_engine STATIC
     engine.h
     engine.cpp
+    watchdog.h
 )
 add_library(bomboec::engine ALIAS bomboec_engine)
 target_include_directories(bomboec_engine PUBLIC ${PROJECT_SOURCE_DIR}/src)

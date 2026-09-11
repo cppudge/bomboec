@@ -15,6 +15,7 @@
 #include "core/config.h"
 #include "core/utf8.h"
 #include "engine/engine.h"
+#include "engine/watchdog.h"
 #include "version.h"
 #include "wasapi/com_util.h"
 #include "wasapi/devices.h"
@@ -57,6 +58,8 @@ struct App {
     std::filesystem::path configPath, logPath;
     AppConfig cfg;
     Engine engine;
+    Watchdog watchdog;
+    bool audioLogged = false;  // после старта в лог уже записано, что звук пошёл
     std::vector<ws::DeviceInfo> capDevices, renDevices;
     std::string lastError;
     bool wantRunning = true;
@@ -169,14 +172,26 @@ void resolveDevicesByName(App& app) {
 
 void showStatusWindow(App& app);
 
-void startEngine(App& app) {
+// interactive: запуск по действию пользователя (при ошибке открывается окно статуса). Иначе
+// это повтор watchdog'а: уведомление только о первой неудаче серии, остальные в лог.
+void startEngine(App& app, bool interactive) {
     resolveDevicesByName(app);
     std::string error;
+    const uint64_t now = GetTickCount64();
     if (!app.engine.start(app.cfg, error)) {
         app.lastError = error;
-        notify(app, L"bomboec: start failed", error, NIIF_ERROR);
-        showStatusWindow(app);
+        app.watchdog.onFailed(now);
+        const std::string retry = " (retry in " + std::to_string((app.watchdog.nextAttemptMs() - now) / 1000) + " s)";
+        if (interactive || app.watchdog.failures() == 1) {
+            notify(app, L"bomboec: start failed", error + retry, NIIF_ERROR);
+        } else {
+            logLine(app, "start failed: " + error + retry);
+        }
+        if (interactive) showStatusWindow(app);
     } else {
+        if (app.watchdog.failures() > 0) notify(app, L"bomboec: running again", "audio devices are back");
+        app.watchdog.onStarted(now);
+        app.audioLogged = false;
         app.lastError.clear();
         const EngineStatus s = app.engine.status();
         char line[1024];
@@ -199,7 +214,8 @@ void stopEngine(App& app) {
 
 void restartIfRunning(App& app) {
     if (app.engine.running()) stopEngine(app);
-    if (app.wantRunning) startEngine(app);
+    app.watchdog.clear();
+    if (app.wantRunning) startEngine(app, true);
 }
 
 std::string statusText(App& app) {
@@ -342,7 +358,8 @@ void selectDevice(App& app, std::string& id, std::string& name, const std::vecto
 void handleCommand(App& app, UINT id) {
     if (id == ID_TOGGLE) {
         app.wantRunning = !app.engine.running();
-        if (app.wantRunning) startEngine(app);
+        app.watchdog.clear();
+        if (app.wantRunning) startEngine(app, true);
         else stopEngine(app);
     } else if (id == ID_STATUS) {
         showStatusWindow(app);
@@ -368,6 +385,33 @@ void handleCommand(App& app, UINT id) {
     }
 }
 
+// Раз в секунду: иконка трея, если оболочка была не готова, и решения Watchdog
+// (перезапуск после ошибки потока или зависания, повтор неудачного старта с backoff).
+void watchdogTick(App& app) {
+    if (!app.trayAdded) addTrayIcon(app);
+    if (!app.wantRunning) return;
+    const uint64_t now = GetTickCount64();
+    const EngineStatus s = app.engine.status();
+    if (s.running && !app.audioLogged && s.framesProcessed > 0) {
+        app.audioLogged = true;
+        logLine(app, std::string("audio running: mmcss ") + (s.mmcss ? "on" : "off"));
+    }
+    switch (app.watchdog.tick(now, s.running, !s.error.empty(), s.framesProcessed)) {
+        case Watchdog::Action::Restart: {
+            const std::string why =
+                app.watchdog.reason() == Watchdog::Reason::Stall ? "no audio from the microphone for 3 s" : s.error;
+            app.lastError = why;
+            stopEngine(app);
+            app.watchdog.onFailed(now);
+            if (app.watchdog.failures() == 1) notify(app, L"bomboec: restarting", why, NIIF_WARNING);
+            else logLine(app, "watchdog: " + why);
+            break;
+        }
+        case Watchdog::Action::Start: startEngine(app, false); break;
+        case Watchdog::Action::None: break;
+    }
+}
+
 LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     App& app = *gApp;
     if (app.taskbarCreatedMsg != 0 && msg == app.taskbarCreatedMsg) {
@@ -388,17 +432,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_SHOW_STATUS: showStatusWindow(app); return 0;
         case WM_COMMAND: handleCommand(app, LOWORD(wp)); return 0;
         case WM_TIMER:
-            if (wp == kWatchdogTimer && !app.trayAdded) addTrayIcon(app);
-            if (wp == kWatchdogTimer && app.wantRunning && app.engine.running()) {
-                const EngineStatus s = app.engine.status();
-                if (!s.error.empty()) {
-                    app.lastError = s.error;
-                    notify(app, L"bomboec: restarting", s.error, NIIF_WARNING);
-                    stopEngine(app);
-                    Sleep(500);
-                    startEngine(app);
-                }
-            }
+            if (wp == kWatchdogTimer) watchdogTick(app);
             return 0;
         case WM_DESTROY:
             KillTimer(h, kWatchdogTimer);
@@ -462,11 +496,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     std::string error;
     const bool firstRun = !std::filesystem::exists(app.configPath);
     if (!loadOrCreateConfig(app, error)) {
+        // Без конфига не стартуем и не повторяем: watchdog запустил бы пустую цепочку.
+        app.wantRunning = false;
         app.lastError = error;
         notify(app, L"bomboec: config error", error, NIIF_ERROR);
         showStatusWindow(app);
     } else {
-        startEngine(app);
+        startEngine(app, true);
     }
     if (firstRun) showStatusWindow(app);
     SetTimer(app.hwnd, kWatchdogTimer, 1000, nullptr);

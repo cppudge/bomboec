@@ -11,10 +11,12 @@ add_executable(bomboec_tests
     test_fill_controller.cpp
     test_wasapi_streams.cpp
     test_utf8.cpp
+    test_devices.cpp
+    test_watchdog.cpp
     "${BOMBOEC_MANIFEST}"
 )
 target_link_libraries(bomboec_tests PRIVATE
-    bomboec::options bomboec::core bomboec::stages bomboec::wasapi Catch2::Catch2WithMain
+    bomboec::options bomboec::core bomboec::stages bomboec::wasapi bomboec::engine Catch2::Catch2WithMain
 )
 
 include(Catch)
