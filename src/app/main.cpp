@@ -7,15 +7,21 @@
 // окно статуса, открыть конфиг, выход. Выбор устройства сохраняется в конфиг
 // (id и имя) и перезапускает движок. Если id устройства больше нет
 // (переустановка драйвера кабеля), устройство ищется по имени.
+//
+// Окно приложения скрытое top-level, а не message-only: только такое получает
+// TaskbarCreated (иконка возвращается после перезапуска explorer.exe) и находится
+// через FindWindow из второго экземпляра.
 
 #include "core/config.h"
 #include "core/utf8.h"
 #include "engine/engine.h"
+#include "version.h"
 #include "wasapi/com_util.h"
 #include "wasapi/devices.h"
 
 #include <windows.h>
 #include <shellapi.h>
+#include <windowsx.h>
 
 #include <chrono>
 #include <cstdio>
@@ -34,6 +40,7 @@ constexpr UINT WM_TRAY = WM_APP + 1;
 constexpr UINT WM_SHOW_STATUS = WM_APP + 2;
 constexpr UINT_PTR kStatusTimer = 1;
 constexpr UINT_PTR kWatchdogTimer = 2;
+constexpr uintmax_t kLogRotateBytes = 1 << 20;  // bomboec.log -> bomboec.log.1
 constexpr UINT ID_TOGGLE = 100, ID_STATUS = 101, ID_CONFIG = 102, ID_RELOAD = 103, ID_EXIT = 104, ID_LOG = 105;
 constexpr UINT ID_MIC_BASE = 1000, ID_SPK_BASE = 2000, ID_OUT_BASE = 3000;
 const wchar_t* kTrayClass = L"BomboecTray";
@@ -44,6 +51,9 @@ struct App {
     HWND statusWnd = nullptr;
     HWND statusEdit = nullptr;
     NOTIFYICONDATAW nid{};
+    bool trayAdded = false;
+    UINT taskbarCreatedMsg = 0;  // RegisterWindowMessage(L"TaskbarCreated")
+    HFONT statusFont = nullptr;
     std::filesystem::path configPath, logPath;
     AppConfig cfg;
     Engine engine;
@@ -61,6 +71,13 @@ std::filesystem::path exeDir() {
 }
 
 void logLine(App& app, const std::string& text) {
+    std::error_code ec;
+    const uintmax_t size = std::filesystem::file_size(app.logPath, ec);
+    if (!ec && size > kLogRotateBytes) {
+        std::filesystem::path old = app.logPath;
+        old += ".1";
+        std::filesystem::rename(app.logPath, old, ec);  // заменяет прежний .1
+    }
     std::ofstream out(app.logPath, std::ios::app | std::ios::binary);
     if (!out) return;
     const std::time_t t = std::time(nullptr);
@@ -87,6 +104,16 @@ void updateTooltip(App& app) {
     const std::wstring tip = app.engine.running() ? L"bomboec: running" : L"bomboec: stopped";
     wcsncpy_s(n.szTip, tip.c_str(), _TRUNCATE);
     Shell_NotifyIconW(NIM_MODIFY, &n);
+}
+
+// Иконка в трее. Повторяется по TaskbarCreated (перезапуск explorer.exe) и из таймера
+// watchdog, пока оболочка не готова (автозапуск раньше панели задач).
+void addTrayIcon(App& app) {
+    app.trayAdded = Shell_NotifyIconW(NIM_ADD, &app.nid) || Shell_NotifyIconW(NIM_MODIFY, &app.nid);
+    if (!app.trayAdded) return;
+    // Сообщения трея в формате NOTIFYICON_VERSION_4 (см. WM_TRAY в WndProc).
+    Shell_NotifyIconW(NIM_SETVERSION, &app.nid);
+    updateTooltip(app);
 }
 
 bool loadOrCreateConfig(App& app, std::string& error) {
@@ -152,8 +179,14 @@ void startEngine(App& app) {
     } else {
         app.lastError.clear();
         const EngineStatus s = app.engine.status();
-        logLine(app, "engine started: mic '" + s.micName + "' (raw " + (s.micRaw ? "on" : "off") + "), speakers '" +
-                         s.speakersName + "', output '" + s.outputName + "'");
+        char line[1024];
+        std::snprintf(line, sizeof(line),
+                      "engine started: mic '%s' (raw %s, %u ch, %s), speakers '%s' (loopback %u ch, %s), "
+                      "output '%s' (wasapi %u ms)",
+                      s.micName.c_str(), s.micRaw ? "on" : "off", s.micDeviceChannels,
+                      s.micEventDriven ? "event" : "polling", s.speakersName.c_str(), s.refDeviceChannels,
+                      s.refEventDriven ? "event" : "polling", s.outputName.c_str(), s.outRenderMs);
+        logLine(app, line);
     }
     updateTooltip(app);
 }
@@ -173,11 +206,12 @@ std::string statusText(App& app) {
     const EngineStatus s = app.engine.status();
     char buf[2048];
     if (!s.running) {
-        std::snprintf(
-            buf, sizeof(buf),
-            "stopped\r\n\r\n%s\r\n\r\nПравый клик по иконке в трее: выбор микрофона, колонок и выхода, старт.\r\n"
-            "Конфиг: %s\r\nЛог: %s",
-            app.lastError.c_str(), pathToUtf8(app.configPath).c_str(), pathToUtf8(app.logPath).c_str());
+        std::snprintf(buf, sizeof(buf),
+                      "bomboec %s: stopped\r\n\r\n%s\r\n\r\n"
+                      "Правый клик по иконке в трее: выбор микрофона, колонок и выхода, старт.\r\n"
+                      "Конфиг: %s\r\nЛог: %s",
+                      BOMBOEC_VERSION_FULL, app.lastError.c_str(), pathToUtf8(app.configPath).c_str(),
+                      pathToUtf8(app.logPath).c_str());
         return buf;
     }
     auto opt = [](const std::optional<double>& v, const char* unit) {
@@ -187,7 +221,8 @@ std::string statusText(App& app) {
         return std::string(b);
     };
     std::snprintf(buf, sizeof(buf),
-                  "running\r\nmic:       %s (raw %s)\r\nreference: %s\r\noutput:    %s\r\n\r\n"
+                  "bomboec %s: running\r\nmic:       %s (raw %s, %s)\r\nreference: %s (%s)\r\noutput:    %s\r\n"
+                  "threads:   mmcss %s\r\n\r\n"
                   "levels     mic %6.1f   ref %6.1f   out %6.1f dBFS\r\n"
                   "aec        delay %s   erl %s   erle %s\r\n"
                   "reference  lead %.0f ms   missing %llu   gaps mic %llu / ref %llu\r\n"
@@ -195,7 +230,9 @@ std::string statusText(App& app) {
                   "fill ctl   inserted %llu   dropped %llu samples\r\n"
                   "drift      mic %+.0f ppm   ref %+.0f ppm\r\n"
                   "frames     %llu\r\n%s",
-                  s.micName.c_str(), s.micRaw ? "on" : "off", s.speakersName.c_str(), s.outputName.c_str(), s.micDb,
+                  BOMBOEC_VERSION_FULL, s.micName.c_str(), s.micRaw ? "on" : "off",
+                  s.micEventDriven ? "event" : "polling", s.speakersName.c_str(),
+                  s.refEventDriven ? "event" : "polling", s.outputName.c_str(), s.mmcss ? "on" : "off", s.micDb,
                   s.refDb, s.outDb, opt(s.stats.delayMs, "ms").c_str(), opt(s.stats.erlDb, "dB").c_str(),
                   opt(s.stats.erleDb, "dB").c_str(), s.referenceLeadMs, (unsigned long long)s.refMissing,
                   (unsigned long long)s.micGaps, (unsigned long long)s.refGaps, s.outBufferedMs, s.outMarginMs,
@@ -235,9 +272,12 @@ void showStatusWindow(App& app) {
                                     CW_USEDEFAULT, 700, 300, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
     app.statusEdit = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | WS_VISIBLE | ES_MULTILINE | ES_READONLY | WS_VSCROLL,
                                      0, 0, 700, 300, app.statusWnd, nullptr, GetModuleHandleW(nullptr), nullptr);
-    HFONT font = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                             CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
-    SendMessageW(app.statusEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    // Шрифт один на всё время жизни приложения: окно открывается и закрывается многократно.
+    if (!app.statusFont) {
+        app.statusFont = CreateFontW(-14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                     CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, L"Consolas");
+    }
+    SendMessageW(app.statusEdit, WM_SETFONT, reinterpret_cast<WPARAM>(app.statusFont), TRUE);
     SetWindowTextW(app.statusEdit, ws::fromUtf8(statusText(app)).c_str());
     SetTimer(app.statusWnd, kStatusTimer, 500, nullptr);
     ShowWindow(app.statusWnd, SW_SHOWNORMAL);
@@ -258,7 +298,7 @@ void appendDeviceMenu(HMENU parent, const wchar_t* title, const std::vector<ws::
     AppendMenuW(parent, MF_POPUP, reinterpret_cast<UINT_PTR>(sub), title);
 }
 
-void showMenu(App& app) {
+void showMenu(App& app, int x, int y) {
     std::string error;
     app.capDevices = ws::enumerateDevices(ws::Flow::Capture, error);
     app.renDevices = ws::enumerateDevices(ws::Flow::Render, error);
@@ -278,10 +318,8 @@ void showMenu(App& app) {
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, ID_EXIT, L"Exit");
 
-    POINT pt;
-    GetCursorPos(&pt);
     SetForegroundWindow(app.hwnd);
-    TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, pt.x, pt.y, 0, app.hwnd, nullptr);
+    TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, x, y, 0, app.hwnd, nullptr);
     PostMessageW(app.hwnd, WM_NULL, 0, 0);
     DestroyMenu(menu);
 }
@@ -332,14 +370,25 @@ void handleCommand(App& app, UINT id) {
 
 LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
     App& app = *gApp;
+    if (app.taskbarCreatedMsg != 0 && msg == app.taskbarCreatedMsg) {
+        addTrayIcon(app);
+        return 0;
+    }
     switch (msg) {
         case WM_TRAY:
-            if (LOWORD(lp) == WM_RBUTTONUP || LOWORD(lp) == WM_CONTEXTMENU) showMenu(app);
-            else if (LOWORD(lp) == WM_LBUTTONUP || LOWORD(lp) == WM_LBUTTONDBLCLK) showStatusWindow(app);
+            // NOTIFYICON_VERSION_4: событие в LOWORD(lp), координаты в wp. Правый клик приходит
+            // и как WM_RBUTTONUP, и как WM_CONTEXTMENU: меню только по второму.
+            switch (LOWORD(lp)) {
+                case WM_CONTEXTMENU: showMenu(app, GET_X_LPARAM(wp), GET_Y_LPARAM(wp)); break;
+                case NIN_SELECT:
+                case NIN_KEYSELECT: showStatusWindow(app); break;
+                default: break;
+            }
             return 0;
         case WM_SHOW_STATUS: showStatusWindow(app); return 0;
         case WM_COMMAND: handleCommand(app, LOWORD(wp)); return 0;
         case WM_TIMER:
+            if (wp == kWatchdogTimer && !app.trayAdded) addTrayIcon(app);
             if (wp == kWatchdogTimer && app.wantRunning && app.engine.running()) {
                 const EngineStatus s = app.engine.status();
                 if (!s.error.empty()) {
@@ -378,7 +427,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     gApp = &app;
     app.configPath = exeDir() / "bomboec.toml";
     app.logPath = exeDir() / "bomboec.log";
-    logLine(app, "start");
+    logLine(app, "start " BOMBOEC_VERSION_FULL);
 
     WNDCLASSW wc{};
     wc.lpfnWndProc = WndProc;
@@ -393,7 +442,12 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     sc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     RegisterClassW(&sc);
 
-    app.hwnd = CreateWindowExW(0, kTrayClass, L"bomboec", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, hInst, nullptr);
+    // Скрытое top-level окно (см. комментарий в начале файла), никогда не показывается.
+    app.hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, kTrayClass, L"bomboec", WS_POPUP, 0, 0, 0, 0, nullptr, nullptr, hInst,
+                               nullptr);
+    app.taskbarCreatedMsg = RegisterWindowMessageW(L"TaskbarCreated");
+    // С повышенными правами UIPI иначе отфильтрует это сообщение от explorer.exe.
+    ChangeWindowMessageFilterEx(app.hwnd, app.taskbarCreatedMsg, MSGFLT_ALLOW, nullptr);
 
     app.nid.cbSize = sizeof(app.nid);
     app.nid.hWnd = app.hwnd;
@@ -401,10 +455,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     app.nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     app.nid.uCallbackMessage = WM_TRAY;
     app.nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
-    wcscpy_s(app.nid.szTip, L"bomboec");
-    Shell_NotifyIconW(NIM_ADD, &app.nid);
     app.nid.uVersion = NOTIFYICON_VERSION_4;
-    Shell_NotifyIconW(NIM_SETVERSION, &app.nid);
+    wcscpy_s(app.nid.szTip, L"bomboec");
+    addTrayIcon(app);
 
     std::string error;
     const bool firstRun = !std::filesystem::exists(app.configPath);
@@ -424,6 +477,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
         DispatchMessageW(&msg);
     }
     gApp = nullptr;
+    if (app.statusFont) DeleteObject(app.statusFont);
     CoUninitialize();
     CloseHandle(mutex);
     return 0;

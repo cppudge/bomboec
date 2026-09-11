@@ -24,6 +24,9 @@ struct EngineStatus {
     std::string error;  // фатальная ошибка потоков, если была
     std::string micName, speakersName, outputName;
     bool micRaw = false;
+    bool micEventDriven = false, refEventDriven = false;      // иначе polling
+    uint32_t micDeviceChannels = 0, refDeviceChannels = 0;    // сколько каналов реально отдаёт engine
+    bool mmcss = false;                                       // все потоки получили MMCSS "Pro Audio"
     float micDb = -100.0f, refDb = -100.0f, outDb = -100.0f;  // уровни последнего кадра
     StageStats stats;
     uint64_t framesProcessed = 0;

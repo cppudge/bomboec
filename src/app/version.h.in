@@ -1,0 +1,10 @@
+// Сгенерировано cmake/git_version.cmake на каждой сборке, не редактировать.
+// Включается и в main.cpp, и в bomboec.rc (rc.exe): только макросы.
+#ifndef BOMBOEC_VERSION_H
+#define BOMBOEC_VERSION_H
+
+#define BOMBOEC_VERSION "@BOMBOEC_VERSION@"
+#define BOMBOEC_GIT_DESCRIBE "@BOMBOEC_GIT_DESCRIBE@"
+#define BOMBOEC_VERSION_FULL "@BOMBOEC_VERSION@ (@BOMBOEC_GIT_DESCRIBE@)"
+
+#endif

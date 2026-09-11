@@ -117,6 +117,10 @@ bool Engine::start(const AppConfig& cfg, std::string& error) {
     {
         const std::scoped_lock g(infoMutex_);
         info_.micRaw = micStream_.rawApplied();
+        info_.micEventDriven = micStream_.eventDriven();
+        info_.refEventDriven = refStream_.eventDriven();
+        info_.micDeviceChannels = micStream_.deviceChannels();
+        info_.refDeviceChannels = refStream_.deviceChannels();
         info_.outRenderMs = output_.targetFrames() * 1000 / rate;
     }
 
@@ -277,6 +281,8 @@ EngineStatus Engine::status() const {
     s.micDriftPpm = micAsm_.timelineSnapshot().driftPpm();
     s.refDriftPpm = refAsm_.timelineSnapshot().driftPpm();
     s.outBufferedMs = outRing_.readable() * 1000 / fmt_.sampleRate;
+    s.mmcss =
+        micStream_.mmcssApplied() && refStream_.mmcssApplied() && output_.mmcssApplied() && keepalive_.mmcssApplied();
     if (chain_) s.stats = chain_->stats();
     for (const std::string& e :
          {micStream_.lastError(), refStream_.lastError(), output_.lastError(), keepalive_.lastError()}) {
