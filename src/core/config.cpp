@@ -56,6 +56,9 @@ bool parseConfig(std::string_view text, AppConfig& out, std::string& error) {
         cfg.engine.micId = (*dev)["mic"].value_or(std::string());
         cfg.engine.speakersId = (*dev)["speakers"].value_or(std::string());
         cfg.engine.outputId = (*dev)["output"].value_or(std::string());
+        cfg.engine.micName = (*dev)["mic_name"].value_or(std::string());
+        cfg.engine.speakersName = (*dev)["speakers_name"].value_or(std::string());
+        cfg.engine.outputName = (*dev)["output_name"].value_or(std::string());
     }
     if (const toml::table* eng = root["engine"].as_table()) {
         cfg.engine.micRaw = (*eng)["mic_raw"].value_or(true);
@@ -80,6 +83,9 @@ bool saveConfig(const std::filesystem::path& path, const AppConfig& cfg, std::st
     devices.insert_or_assign("mic", cfg.engine.micId);
     devices.insert_or_assign("speakers", cfg.engine.speakersId);
     devices.insert_or_assign("output", cfg.engine.outputId);
+    devices.insert_or_assign("mic_name", cfg.engine.micName);
+    devices.insert_or_assign("speakers_name", cfg.engine.speakersName);
+    devices.insert_or_assign("output_name", cfg.engine.outputName);
     root.insert_or_assign("devices", std::move(devices));
 
     toml::table* eng = root["engine"].as_table();

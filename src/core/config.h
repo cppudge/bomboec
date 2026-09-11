@@ -21,6 +21,9 @@ struct EngineSettings {
     std::string micId;        // endpoint ID; пусто = default capture
     std::string speakersId;   // render endpoint для loopback; пусто = default render
     std::string outputId;     // render endpoint для очищенного сигнала (virtual cable)
+    // Имена устройств: запасной способ найти устройство, если endpoint ID
+    // сменился (переустановка драйвера кабеля меняет ID, имя остаётся).
+    std::string micName, speakersName, outputName;
     bool micRaw = true;
     uint32_t referenceLeadMs = 20;   // reference берётся на столько раньше mic (запас на джиттер loopback)
     uint32_t outputBufferMs = 30;    // предзаполнение выходного буфера
