@@ -26,7 +26,7 @@
 ## Сборка
 
 ```powershell
-.uild.ps1            # Release; .uild.ps1 -Debug для Debug, -Clean для чистой сборки
+./build/Release/src/tools/bomboec-rec.exe --out recordings/take1 --seconds 20 --mic "<id>" --speakers "<id>"
 ```
 
 Скрипт делает то же, что и руками:
@@ -107,8 +107,8 @@ public:
 ## Рекордер
 
 ```powershell
-.uild\Release\src	oolsomboec-rec.exe --list
-.uild\Release\src	oolsomboec-rec.exe --out recordings	ake1 --seconds 20 --mic "<id>" --speakers "<id>"
+./build/Release/src/tools/bomboec-rec.exe --list
+./build/Release/src/tools/bomboec-rec.exe --out recordings/take1 --seconds 20 --mic "<id>" --speakers "<id>"
 ```
 
 Пишет `mic.wav` (mono) и `ref.wav` (stereo), 48 kHz float32, выровненные по QPC-меткам
