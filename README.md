@@ -57,8 +57,9 @@ config/default.toml           конфигурация конвейера по �
 src/core/                     Frame, RingBuffer, Timeline, PacketAssembler, WAV, IStage, Chain, StageRegistry, config
 src/stages/                   hpf, webrtc (AEC3 + hpf/ns/agc из APM), limiter; позже speex_aec, rnnoise, ...
 src/wasapi/                   devices, CaptureStream (mic/loopback), RenderStream (keepalive, позже cable)
-src/tools/                    apm_smoke, bomboec-rec (рекордер), bomboec-proc (офлайн-процессор)
-src/app/                      tray-приложение (этап 4)
+src/tools/                    apm_smoke, bomboec-rec (рекордер), bomboec-proc (офлайн-процессор), bomboec-run (движок в консоли)
+src/engine/                   Engine: realtime-конвейер mic -> reference по таймлайну -> Chain -> render
+src/app/                      bomboec.exe, tray-приложение вокруг Engine
 tests/                        Catch2
 ```
 
@@ -137,6 +138,31 @@ public:
 Протокол записи для оценки AEC: 30 секунд, первые 10 только музыка из колонок, следующие 10
 музыка плюс речь в микрофон (double-talk), последние 10 только речь без музыки.
 
+## Realtime-движок и tray-приложение
+
+`bomboec.exe` живёт в трее, конфиг `bomboec.toml` рядом с exe создаётся из встроенного шаблона.
+Меню: старт/стоп, выбор микрофона, колонок (reference) и выхода, окно статуса (уровни,
+delay/ERL/ERLE, пропуски reference, буфер выхода, дрейф), открыть конфиг, перечитать конфиг.
+Выбор устройства сохраняется в конфиг и перезапускает движок. При падении потока (устройство
+пропало) движок перезапускается watchdog'ом раз в секунду.
+
+Выход сейчас идёт в любой выбранный render endpoint. Пока нет драйвера virtual cable, для
+проверки удобен любой существующий виртуальный render (например Steam Streaming Speakers).
+Выход в те же колонки, что служат reference, движок отказывается открывать: это акустическая петля.
+
+Консольный вариант для отладки:
+
+```powershell
+./build/Release/src/tools/bomboec-run.exe --config config/default.toml --seconds 30 --mic "<id>" --speakers "<id>" --output "<id>" --record recordings/live1
+```
+
+`--record` включает debug-запись mic_raw/ref/out в WAV (то, что реально видел движок).
+
+Выравнивание reference: для кадра микрофона со временем t (по QPC-таймлайну mic) reference
+читается из кольцевого буфера по индексу `refTimeline.sampleAt(t - lead)`, lead = 20 ms как запас
+на джиттер loopback. Дрейф часов компенсируется проскальзыванием на сэмпл, поэтому задержка,
+которую видит AEC3, не растёт со временем. Плавный ресемплинг вместо проскальзывания: этап 5.
+
 ## Принципы realtime-части
 
 - Микрофон открывается в raw mode (`AUDCLNT_STREAMOPTIONS_RAW`), без категории Communications,
@@ -159,7 +185,8 @@ public:
 | 1. Ядро (готово) | Frame, ring, timeline, IStage, Chain, Registry, конфиг TOML, тесты | стадии hpf и webrtc проходят unit-тесты на синтетике |
 | 2. Рекордер (готово) | WASAPI mic в raw mode, loopback с keepalive, QPC-метки, multi-track WAV | синхронные записи с реального стола плюс metadata.json |
 | 3. Офлайн-процессор | WAV в цепочку, WAV на выходе, ERLE и статистика APM | подобран конфиг AEC3 под конкретный setup |
-| 4. Realtime | движок на mic-потоке, reference по таймлайну, вывод в VB-Cable, tray с диагностикой | Discord работает через виртуальный микрофон |
+| 4a. Realtime (готово) | движок на mic-потоке, reference по таймлайну, вывод в любой render endpoint, tray с диагностикой | движок работает вживую без пропусков reference |
+| 4b. Virtual cable | свой драйвер-cable (render + capture endpoint) на базе SysVAD, нужен WDK и test-signing | Discord работает через виртуальный микрофон |
 | 5. Устойчивость | уведомления устройств, перезапуск, контроллер заполнения выхода, измерение дрейфа, статический сдвиг reference | сутки работы без рассинхрона |
 | 6. Второй бэкенд | рецепты speexdsp или rnnoise, стадии, опционально DLL-плагины | цепочка переключается через конфиг |
 | 7. Драйвер | cable на SysVAD | только если VB-Cable перестанет устраивать |

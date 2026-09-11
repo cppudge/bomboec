@@ -9,3 +9,7 @@ target_link_libraries(bomboec-rec PRIVATE bomboec_wasapi cxxopts::cxxopts)
 # Этап 3: офлайн-прогон записей через цепочку.
 add_executable(bomboec-proc proc.cpp)
 target_link_libraries(bomboec-proc PRIVATE bomboec_stages cxxopts::cxxopts)
+
+# Этап 4: консольный запуск realtime-движка.
+add_executable(bomboec-run run.cpp)
+target_link_libraries(bomboec-run PRIVATE bomboec_engine cxxopts::cxxopts)

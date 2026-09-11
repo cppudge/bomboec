@@ -91,6 +91,25 @@ public:
         return n;
     }
 
+    enum class ReadAtResult { Ok, Partial, NotYet, TooOld };
+
+    // Consumer: чтение по абсолютному индексу фрейма без сдвига позиции.
+    // Недостающее заполняется нулями. Ok: весь диапазон был в буфере;
+    // NotYet: ещё не записано; TooOld: уже отброшено; Partial: частично.
+    ReadAtResult readAt(uint64_t index, float* interleaved, uint32_t frames) const {
+        const uint64_t r = readPos_.load(std::memory_order_relaxed);
+        const uint64_t w = writePos_.load(std::memory_order_acquire);
+        std::memset(interleaved, 0, size_t(frames) * channels_ * sizeof(float));
+        const uint64_t end = index + frames;
+        const uint64_t from = std::max(index, r);
+        const uint64_t to = std::min(end, w);
+        if (from >= to) {
+            return index >= w ? ReadAtResult::NotYet : ReadAtResult::TooOld;
+        }
+        copyOut(from, interleaved + size_t(from - index) * channels_, uint32_t(to - from));
+        return (from == index && to == end) ? ReadAtResult::Ok : ReadAtResult::Partial;
+    }
+
     // Consumer: отбросить frames самых старых фреймов.
     uint32_t discard(uint32_t frames) {
         const uint64_t r = readPos_.load(std::memory_order_relaxed);

@@ -4,6 +4,7 @@
 #include "core/timeline.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstdlib>
 
@@ -45,7 +46,8 @@ public:
     }
 
     void reset() {
-        started_ = false;
+        SpinGuard g(lock_);
+        started_.store(false, std::memory_order_release);
         originTicks_ = 0;
         expectedTicks_ = 0;
         stats_ = {};
@@ -55,8 +57,7 @@ public:
     // interleaved содержит frames фреймов с числом каналов ring->channels().
     void push(const float* interleaved, uint32_t frames, int64_t ticks) {
         ++stats_.packets;
-        if (!started_) {
-            started_ = true;
+        if (!started_.load(std::memory_order_relaxed)) {
             originTicks_ = ticks;
             expectedTicks_ = ticks;
         }
@@ -87,23 +88,42 @@ public:
         // Якорь: первый записанный сэмпл этого пакета соответствует моменту
         // ticks + skip/rate. Индекс берём по позиции записи ring.
         const uint64_t firstIndex = ring_->totalWritten() - n;
-        timeline_.anchor(ticks + int64_t(double(skip) / rate_ * tps_ + 0.5), firstIndex);
+        {
+            SpinGuard g(lock_);
+            timeline_.anchor(ticks + int64_t(double(skip) / rate_ * tps_ + 0.5), firstIndex);
+        }
+        started_.store(true, std::memory_order_release);
 
         expectedTicks_ = ticks + int64_t(double(frames) / rate_ * tps_ + 0.5);
     }
 
-    bool started() const { return started_; }
+    // Потокобезопасно относительно push(): читается из потока-consumer.
+    bool started() const { return started_.load(std::memory_order_acquire); }
     int64_t originTicks() const { return originTicks_; }
+    Timeline timelineSnapshot() const {
+        SpinGuard g(lock_);
+        return timeline_;
+    }
+    // Только из потока-producer или когда push() не вызывается.
     const Timeline& timeline() const { return timeline_; }
     const Stats& stats() const { return stats_; }
 
 private:
+    struct SpinGuard {
+        explicit SpinGuard(std::atomic_flag& f) : f_(f) {
+            while (f_.test_and_set(std::memory_order_acquire)) {}
+        }
+        ~SpinGuard() { f_.clear(std::memory_order_release); }
+        std::atomic_flag& f_;
+    };
+
     double rate_ = 48000.0;
     double tps_ = 1e7;
     RingBuffer* ring_ = nullptr;
     int64_t thresholdSamples_ = 120;
     Timeline timeline_;
-    bool started_ = false;
+    mutable std::atomic_flag lock_ = ATOMIC_FLAG_INIT;
+    std::atomic<bool> started_{false};
     int64_t originTicks_ = 0;
     int64_t expectedTicks_ = 0;
     Stats stats_;
