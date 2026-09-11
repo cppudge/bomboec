@@ -40,6 +40,8 @@ NTSTATUS CCableBuffer::Init(_In_ ULONG capacityBytes, _In_ ULONG primeBytes)
     m_overruns = 0;
     m_realigns = 0;
     m_trimmedBytes = 0;
+    m_lastReport = 0;
+    RtlZeroMemory(m_reported, sizeof(m_reported));
     return STATUS_SUCCESS;
 }
 
@@ -133,6 +135,7 @@ void CCableBuffer::Write(_In_reads_bytes_(bytes) const BYTE* data, _In_ ULONG by
     }
 
     KeReleaseSpinLock(&m_lock, oldIrql);
+    ReportCounters();
 }
 
 #pragma code_seg()
@@ -203,4 +206,33 @@ void CCableBuffer::Read(_Out_writes_bytes_all_(bytes) BYTE* data, _In_ ULONG byt
     }
 
     KeReleaseSpinLock(&m_lock, oldIrql);
+    ReportCounters();
+}
+
+#pragma code_seg()
+void CCableBuffer::ReportCounters()
+{
+    // Не чаще раза в секунду (единицы 100 ns) и только при изменении. Read и Write
+    // идут из DPC разных потоков: слот отчёта захватывается атомарно. Счётчики
+    // читаются без m_lock: 64-битное выровненное чтение на x64 атомарно, отчёту
+    // хватает значения на момент чтения.
+    const LONG64 now = (LONG64)KeQueryInterruptTime();
+    const LONG64 last = m_lastReport;
+    if (now - last < 10000000)
+    {
+        return;
+    }
+    if (InterlockedCompareExchange64(&m_lastReport, now, last) != last)
+    {
+        return;
+    }
+    const ULONGLONG current[4] = { m_underruns, m_overruns, m_realigns, m_trimmedBytes };
+    if (RtlCompareMemory(current, m_reported, sizeof(current)) == sizeof(current))
+    {
+        return;
+    }
+    RtlCopyMemory(m_reported, current, sizeof(current));
+    DbgPrintEx(DPFLTR_IHVAUDIO_ID, DPFLTR_WARNING_LEVEL,
+               "bomboec_cable: underruns %I64u, overruns %I64u, realigns %I64u, trimmed %I64u bytes\n",
+               current[0], current[1], current[2], current[3]);
 }

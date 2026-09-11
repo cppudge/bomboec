@@ -50,6 +50,13 @@ public:
 
     ULONG Available() const { return m_count; }
 
+    // Счётчики наружу: DbgPrintEx (компонент IHVAUDIO, уровень WARNING) при
+    // изменении, не чаще раза в секунду. Видно в DebugView (Capture Kernel) или
+    // WinDbg после включения фильтра: HKLM\SYSTEM\CurrentControlSet\Control\
+    // Session Manager\Debug Print Filter, DWORD IHVAUDIO = 0x8, перезагрузка.
+    // Вызывать без m_lock, IRQL <= DISPATCH_LEVEL.
+    void ReportCounters();
+
 private:
     KSPIN_LOCK  m_lock;
     BYTE*       m_buffer;
@@ -63,6 +70,8 @@ private:
     ULONGLONG   m_overruns;
     ULONGLONG   m_realigns;
     ULONGLONG   m_trimmedBytes; // отброшено при прайме сверх m_prime
+    volatile LONG64 m_lastReport;   // KeQueryInterruptTime последнего отчёта
+    ULONGLONG   m_reported[4];      // счётчики в последнем отчёте
 };
 
 extern CCableBuffer g_Cable;
