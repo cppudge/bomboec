@@ -1,0 +1,168 @@
+; bomboec Virtual Audio Cable
+; Render endpoint "Speakers (bomboec Cable)" -> capture endpoint "Microphone (bomboec Cable)".
+; Based on the Microsoft SimpleAudioSample driver (MIT, Windows-driver-samples).
+
+[Version]
+Signature="$Windows NT$"
+Class=MEDIA
+Provider=%ProviderName%
+ClassGUID={4d36e96c-e325-11ce-bfc1-08002be10318}
+DriverVer=09/11/2026,1.0.0.1
+CatalogFile=bomboec_cable.cat
+PnpLockDown=1
+
+[SourceDisksNames]
+222="bomboec Virtual Audio Cable Disk","",222
+
+[SourceDisksFiles]
+bomboec_cable.sys=222
+
+[Manufacturer]
+%MfgName%=BOMBOEC,NTamd64.10.0...22000
+
+[BOMBOEC.NTamd64.10.0...22000]
+%BOMBOEC_SA.DeviceDesc%=BOMBOEC_SA, ROOT\BomboecCable
+
+[DestinationDirs]
+BOMBOEC_SA.CopyList=13 ; DriverStore
+
+[BOMBOEC_SA.CopyList]
+bomboec_cable.sys
+
+[BOMBOEC_SA.AddReg]
+HKR,,AssociatedFilters,,"wdmaud,swmidi,redbook"
+HKR,,Driver,,bomboec_cable.sys
+
+HKR,PowerSettings,SingleComponentMultiFxStates,3,1,0,0,0
+HKR,PowerSettings,ConservationIdleTime,3,3,0,0,0
+HKR,PowerSettings,PerformanceIdleTime,3,3,0,0,0
+HKR,PowerSettings,IdlePowerState,3,3,0,0,0
+
+HKR,Drivers,SubClasses,,"wave,midi,mixer"
+
+HKR,Drivers\wave\wdmaud.drv,Driver,,wdmaud.drv
+HKR,Drivers\midi\wdmaud.drv,Driver,,wdmaud.drv
+HKR,Drivers\mixer\wdmaud.drv,Driver,,wdmaud.drv
+
+HKR,Drivers\wave\wdmaud.drv,Description,,%BOMBOEC_SA.DeviceDesc%
+HKR,Drivers\mixer\wdmaud.drv,Description,,%BOMBOEC_SA.DeviceDesc%
+
+;======================================================
+; capture interfaces: cable output ("Microphone")
+;======================================================
+[BOMBOEC.I.WaveMicArray1]
+AddReg=BOMBOEC.I.WaveMicArray1.AddReg
+[BOMBOEC.I.WaveMicArray1.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%BOMBOEC.WaveMicArray1.szPname%
+
+[BOMBOEC.I.TopologyMicArray1]
+AddReg=BOMBOEC.I.TopologyMicArray1.AddReg
+
+[BOMBOEC.I.TopologyMicArray1.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%BOMBOEC.TopologyMicArray1.szPname%
+
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x00010001,0x1
+
+;======================================================
+; render interfaces: cable input ("Speakers")
+;======================================================
+[BOMBOEC.I.WaveSpeaker]
+AddReg=BOMBOEC.I.WaveSpeaker.AddReg
+
+[BOMBOEC.I.WaveSpeaker.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%BOMBOEC.WaveSpeaker.szPname%
+
+[BOMBOEC.I.TopologySpeaker]
+AddReg=BOMBOEC.I.TopologySpeaker.AddReg
+
+[BOMBOEC.I.TopologySpeaker.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%BOMBOEC.TopologySpeaker.szPname%
+
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x00010001,0x1
+
+;======================================================
+; BOMBOEC_SA
+;======================================================
+[BOMBOEC_SA.NT]
+Include=ks.inf,wdmaudio.inf
+Needs=KS.Registration, WDMAUDIO.Registration
+CopyFiles=BOMBOEC_SA.CopyList
+AddReg=BOMBOEC_SA.AddReg
+
+[BOMBOEC_SA.NT.Interfaces]
+AddInterface=%KSCATEGORY_AUDIO%, %KSNAME_WaveSpeaker%, BOMBOEC.I.WaveSpeaker
+AddInterface=%KSCATEGORY_RENDER%, %KSNAME_WaveSpeaker%, BOMBOEC.I.WaveSpeaker
+AddInterface=%KSCATEGORY_REALTIME%, %KSNAME_WaveSpeaker%, BOMBOEC.I.WaveSpeaker
+AddInterface=%KSCATEGORY_AUDIO%, %KSNAME_TopologySpeaker%, BOMBOEC.I.TopologySpeaker
+AddInterface=%KSCATEGORY_TOPOLOGY%, %KSNAME_TopologySpeaker%, BOMBOEC.I.TopologySpeaker
+
+AddInterface=%KSCATEGORY_AUDIO%, %KSNAME_WaveMicArray1%, BOMBOEC.I.WaveMicArray1
+AddInterface=%KSCATEGORY_REALTIME%, %KSNAME_WaveMicArray1%, BOMBOEC.I.WaveMicArray1
+AddInterface=%KSCATEGORY_CAPTURE%, %KSNAME_WaveMicArray1%, BOMBOEC.I.WaveMicArray1
+AddInterface=%KSCATEGORY_AUDIO%, %KSNAME_TopologyMicArray1%, BOMBOEC.I.TopologyMicArray1
+AddInterface=%KSCATEGORY_TOPOLOGY%, %KSNAME_TopologyMicArray1%, BOMBOEC.I.TopologyMicArray1
+
+[BOMBOEC_SA.NT.Services]
+AddService=BomboecCable,0x00000002,BomboecCable_Service_Inst
+
+[BomboecCable_Service_Inst]
+DisplayName=%BomboecCable.SvcDesc%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\bomboec_cable.sys
+
+[BOMBOEC_SA.NT.HW]
+AddReg=AUDIOHW.AddReg
+
+[AUDIOHW.AddReg]
+; FILE_DEVICE_SOUND
+HKR,,DeviceType,0x10001,0x0000001D
+; SDDL_DEVOBJ_SYS_ALL_ADM_RWX_WORLD_RWX_RES_RWX
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GRGWGX;;;BA)(A;;GRGWGX;;;WD)(A;;GRGWGX;;;RC)"
+
+;======================================================
+; WDF
+;======================================================
+[BOMBOEC_SA.NT.Wdf]
+KmdfService = BomboecCable, BOMBOEC_SA_WdfSect
+[BOMBOEC_SA_WdfSect]
+KmdfLibraryVersion = 1.33
+
+;======================================================
+; Strings
+;======================================================
+[Strings]
+KSNAME_WaveSpeaker="WaveSpeaker"
+KSNAME_TopologySpeaker="TopologySpeaker"
+KSNAME_WaveMicArray1="WaveMicArray1"
+KSNAME_TopologyMicArray1="TopologyMicArray1"
+
+Proxy.CLSID="{17CCA71B-ECD7-11D0-B908-00A0C9223196}"
+KSCATEGORY_AUDIO="{6994AD04-93EF-11D0-A3CC-00A0C9223196}"
+KSCATEGORY_RENDER="{65E8773E-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_CAPTURE="{65E8773D-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_REALTIME ="{EB115FFC-10C8-4964-831D-6DCB02E6F23F}"
+KSCATEGORY_TOPOLOGY = "{DDA54A40-1E4C-11D1-A050-405705C10000}"
+
+KSNODETYPE_ANY   = "{00000000-0000-0000-0000-000000000000}"
+
+PKEY_AudioEndpoint_Association               = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},2"
+PKEY_AudioEndpoint_Supports_EventDriven_Mode = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},7"
+
+ProviderName = "bomboec"
+MfgName      = "bomboec"
+
+BOMBOEC_SA.DeviceDesc="bomboec Cable"
+BomboecCable.SvcDesc="bomboec Virtual Audio Cable Driver"
+
+BOMBOEC.WaveSpeaker.szPname="bomboec Cable Wave Speaker"
+BOMBOEC.TopologySpeaker.szPname="bomboec Cable Topology Speaker"
+BOMBOEC.WaveMicArray1.szPname="bomboec Cable Wave Microphone"
+BOMBOEC.TopologyMicArray1.szPname="bomboec Cable Topology Microphone"

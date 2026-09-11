@@ -163,6 +163,28 @@ delay/ERL/ERLE, пропуски reference, буфер выхода, дрейф)
 на джиттер loopback. Дрейф часов компенсируется проскальзыванием на сэмпл, поэтому задержка,
 которую видит AEC3, не растёт со временем. Плавный ресемплинг вместо проскальзывания: этап 5.
 
+## Virtual cable (драйвер)
+
+`driver/` содержит kernel-mode драйвер `bomboec_cable.sys`: WaveRT/portcls, на базе Microsoft
+SimpleAudioSample (MIT). Render endpoint "Speakers (bomboec Cable)" и capture endpoint
+"Microphone (bomboec Cable)" соединены кольцевым буфером в ядре (`src/cable.cpp`): то, что
+приложение играет в Speakers, любое другое приложение слышит из Microphone. Формат обоих
+endpoint'ов 48 kHz, 2 ch, 16-bit PCM, задержка кабеля 20 ms. Генератор тона и запись в файлы
+из образца удалены.
+
+Сборка не требует расширения WDK для Visual Studio: `driver/CMakeLists.txt` вызывает cl/link с
+kernel-флагами напрямую (WDK 10.0.26100, KMDF 1.33, MSVC из VS 18).
+
+```powershell
+pwsh ./driver/build.ps1        # build/driver/package: .sys, .inf, .cat, тестовый .cer
+# из PowerShell от администратора, режим тестовой подписи должен быть включён:
+pwsh ./driver/install.ps1      # доверие тестовому сертификату + devcon install ROOT\BomboecCable
+pwsh ./driver/uninstall.ps1
+```
+
+После установки в bomboec.exe выбирается Output = "Speakers (bomboec Cable)", а в Discord и
+прочих приложениях микрофон = "Microphone (bomboec Cable)".
+
 ## Принципы realtime-части
 
 - Микрофон открывается в raw mode (`AUDCLNT_STREAMOPTIONS_RAW`), без категории Communications,
@@ -186,7 +208,7 @@ delay/ERL/ERLE, пропуски reference, буфер выхода, дрейф)
 | 2. Рекордер (готово) | WASAPI mic в raw mode, loopback с keepalive, QPC-метки, multi-track WAV | синхронные записи с реального стола плюс metadata.json |
 | 3. Офлайн-процессор | WAV в цепочку, WAV на выходе, ERLE и статистика APM | подобран конфиг AEC3 под конкретный setup |
 | 4a. Realtime (готово) | движок на mic-потоке, reference по таймлайну, вывод в любой render endpoint, tray с диагностикой | движок работает вживую без пропусков reference |
-| 4b. Virtual cable | свой драйвер-cable (render + capture endpoint) на базе SysVAD, нужен WDK и test-signing | Discord работает через виртуальный микрофон |
+| 4b. Virtual cable (собран, ждёт установки) | драйвер-cable на базе SimpleAudioSample, сборка через CMake без VSIX, test-signing | Discord работает через виртуальный микрофон |
 | 5. Устойчивость | уведомления устройств, перезапуск, контроллер заполнения выхода, измерение дрейфа, статический сдвиг reference | сутки работы без рассинхрона |
 | 6. Второй бэкенд | рецепты speexdsp или rnnoise, стадии, опционально DLL-плагины | цепочка переключается через конфиг |
 | 7. Драйвер | cable на SysVAD | только если VB-Cable перестанет устраивать |
