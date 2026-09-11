@@ -1,8 +1,9 @@
 // bomboec-play: воспроизведение тестового сигнала или WAV в render endpoint.
 //
-//   bomboec-play --output <id> --seconds 10 [--wav file.wav] [--gain-db -12]
+//   bomboec-play --output <id> --seconds 10 [--wav file.wav | --noise] [--gain-db -12]
 //
-// Без --wav играет чирп 100..8000 Hz (1 с) с паузой 0.5 с.
+// Без --wav играет чирп 100..8000 Hz (1 с) с паузой 0.5 с; --noise: полосовой шум 100-6000 Hz
+// (широкополосный источник эха для записи корпуса).
 //
 // Используется для проверки virtual cable и калибровки задержки.
 
@@ -21,6 +22,7 @@
 #include <cstdio>
 #include <exception>
 #include <numbers>
+#include <random>
 #include <string>
 #include <thread>
 #include <vector>
@@ -37,6 +39,7 @@ int run(int argc, char** argv) {
         ("output", "Render endpoint id (default: system default)", cxxopts::value<std::string>()->default_value(""))
         ("seconds", "Duration", cxxopts::value<double>()->default_value("10"))
         ("wav", "WAV file to play (looped); otherwise a 100..8000 Hz chirp", cxxopts::value<std::string>()->default_value(""))
+        ("noise", "Band-limited noise 100..6000 Hz instead of the chirp")
         ("gain-db", "Gain in dB", cxxopts::value<double>()->default_value("-12"))
         ("h,help", "Help");
     // clang-format on
@@ -72,6 +75,29 @@ int run(int argc, char** argv) {
             for (uint32_t c = 0; c < ch; ++c) s += data[i * ch + c];
             source[i] = s / float(ch);
         }
+    } else if (args.contains("noise")) {
+        // Белый шум через два биквада: ФВЧ 100 Hz и ФНЧ 6 kHz (RBJ, Q 0.707), 10 с в цикле.
+        std::mt19937 rng(11);
+        std::normal_distribution<float> noise(0.0f, 0.15f);
+        source.resize(size_t(rate) * 10);
+        for (float& x : source) x = noise(rng);
+        for (const auto [hz, highpass] : {std::pair{100.0, true}, std::pair{6000.0, false}}) {
+            const double w0 = 2.0 * std::numbers::pi * hz / rate, alpha = std::sin(w0) / (2.0 * 0.7071);
+            const double cw = std::cos(w0), a0 = 1.0 + alpha;
+            const double b0 = (highpass ? (1.0 + cw) : (1.0 - cw)) / 2.0 / a0;
+            const double b1 = (highpass ? -(1.0 + cw) : (1.0 - cw)) / a0;
+            const double a1 = -2.0 * cw / a0, a2 = (1.0 - alpha) / a0;
+            double z1 = 0.0, z2 = 0.0;
+            for (float& x : source) {
+                const double y = b0 * x + z1;
+                z1 = b1 * x - a1 * y + z2;
+                z2 = b0 * x - a2 * y;
+                x = float(y);
+            }
+        }
+        float peak = 1e-6f;
+        for (const float x : source) peak = std::max(peak, std::fabs(x));
+        for (float& x : source) x = x / peak * 0.8f;
     } else {
         const size_t chirpLen = rate, pause = rate / 2;
         source.assign(chirpLen + pause, 0.0f);
@@ -104,7 +130,10 @@ int run(int argc, char** argv) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 4;
     }
-    std::printf("playing %s into %s for %.1f s\n", args["wav"].as<std::string>().empty() ? "chirp" : "wav",
+    std::printf("playing %s into %s for %.1f s\n",
+                !args["wav"].as<std::string>().empty() ? "wav"
+                : args.contains("noise")               ? "noise"
+                                                       : "chirp",
                 ws::toUtf8(ws::describeDevice(dev.Get()).name).c_str(), args["seconds"].as<double>());
     std::this_thread::sleep_for(std::chrono::milliseconds(int64_t(args["seconds"].as<double>() * 1000)));
     out.stop();

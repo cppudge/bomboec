@@ -125,8 +125,8 @@ bomboec-proc --mic take/mic.wav --ref take/ref.wav --config config/default.toml 
 # движок в консоли, с debug-записью того, что он реально видел
 bomboec-run --config config/default.toml --seconds 30 --mic "<id>" --speakers "<id>" --output "<id>" --record recordings/live1
 
-# чирп или WAV в render endpoint (проверка кабеля, калибровка задержки)
-bomboec-play --output "<id>" --seconds 10
+# чирп, полосовой шум или WAV в render endpoint (проверка кабеля, калибровка задержки, запись корпуса)
+bomboec-play --output "<id>" --seconds 10 [--noise | --wav music.wav]
 ```
 
 `bomboec-proc` в итоге печатает подавление на кадрах с активным reference, подавление без
@@ -145,6 +145,14 @@ reference (мера искажения речи, около 0 dB без учёт
 - Тесты (Catch2, `tests/`): модули ядра, поддельные WASAPI-объекты для путей ошибок устройств
   (`tests/fakes/`), детерминированный симулятор часов и пакетов для конвейера (`tests/sim/`),
   подавление эха AEC3 при джиттере и дрейфе. Скрытый бенчмарк: `bomboec_tests "[aec-benchmark]"`.
+- Регрессия на эталонных записях (`[corpus]`): пары mic.wav + ref.wav из `bomboec-rec`
+  прогоняются через настоящий Pipeline с измеренным дрейфом и цепочкой из шаблона, по сегментам
+  (эхо, double-talk, речь, тишина, шум) проверяются подавление, сохранность речи, всплески и
+  ухудшение относительно базовых значений. Манифест `tests/corpus/corpus.toml`, записи в
+  `recordings/` (вне git; без них тест пропускается). Записать корпус:
+  `pwsh scripts/record-corpus.ps1` (пять сценариев с подсказками, музыка через `bomboec-play
+  --noise` или `-Music file.wav`); обновить базовые значения: `BOMBOEC_CORPUS_BASELINE=1
+  bomboec_tests "[corpus]"`.
 
 ## Структура
 
@@ -154,7 +162,7 @@ CMakeLists.txt                корневой проект, cmake-conan, фла
 CMakePresets.json             пресеты release, debug, asan (configure, build, test, workflow)
 build.ps1                     окружение MSVC + cmake --workflow
 cmake/                        cmake-conan provider, манифест exe (UTF-8), генерация version.h
-scripts/                      vcvars.ps1, check.ps1 (clang-tidy + clang-format), ci.ps1
+scripts/                      vcvars.ps1, check.ps1 (clang-tidy + clang-format), ci.ps1, record-corpus.ps1
 conan-recipes/recipes/        локальные рецепты (webrtc-audio-processing)
 config/default.toml           конфигурация по умолчанию (встраивается в bomboec.exe)
 docs/                         архитектура, драйвер, замеры, решения, исследование
@@ -165,7 +173,7 @@ src/engine/                   Pipeline (DSP без устройств), Engine (
 src/app/                      bomboec.exe (трей), минидампы
 src/tools/                    bomboec-rec, bomboec-proc, bomboec-run, bomboec-play, apm_smoke
 driver/                       драйвер кабеля bomboec_cable.sys
-tests/                        Catch2: модули, fakes/ (WASAPI), sim/ (симулятор конвейера)
+tests/                        Catch2: модули, fakes/ (WASAPI), sim/ (симулятор конвейера), corpus/ (манифест эталонов)
 ```
 
 ## Этапы

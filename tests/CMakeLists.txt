@@ -20,12 +20,16 @@ add_executable(bomboec_tests
     test_realtime.cpp
     test_recorder.cpp
     test_crash_dump.cpp
+    test_corpus.cpp
     "${BOMBOEC_MANIFEST}"
 )
 target_link_libraries(bomboec_tests PRIVATE
     bomboec::options bomboec::core bomboec::stages bomboec::wasapi bomboec::engine bomboec::crash
     Catch2::Catch2WithMain
 )
+
+# Корпус эталонных записей: манифест tests/corpus/corpus.toml, записи в recordings/ (вне git).
+target_compile_definitions(bomboec_tests PRIVATE "BOMBOEC_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}\"")
 
 include(Catch)
 catch_discover_tests(bomboec_tests)

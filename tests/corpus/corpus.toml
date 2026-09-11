@@ -1,0 +1,64 @@
+# Корпус эталонных записей для регрессии (tests/test_corpus.cpp, тег [corpus]).
+#
+# Записи лежат вне git: root задаёт каталог относительно этого файла, dir сценария относительно
+# root. Каждый сценарий: mic.wav (микрофон, raw), ref.wav (loopback колонок), metadata.json из
+# bomboec-rec (scripts/record-corpus.ps1 записывает весь корпус по протоколу с подсказками).
+#
+# Сегменты (секунды от начала записи) и что на них проверяется:
+#   echo         музыка в колонках, человек молчит: подавление mic -> out >= echo_min_db
+#   double_talk  музыка и речь одновременно: подавление >= double_talk_min_db
+#   speech       только речь: потеря уровня <= speech_max_loss_db
+#   silence      никто не говорит, музыки нет: выход тише входа >= quiet_min_reduction_db
+#   noise        бытовой шум без музыки (клавиатура, вентилятор): как silence
+# На каждом сегменте: всплески (RMS 100 ms) на выходе не выше входа + burst_max_db.
+# baseline: подавление по сегментам (dB, в том же порядке) с прошлого прогона; ухудшение
+# больше regression_tolerance_db - ошибка. Обновить: BOMBOEC_CORPUS_BASELINE=1 bomboec_tests "[corpus]".
+
+root = "../../recordings"
+# config = "..."   # TOML цепочки вместо встроенного config/default.toml
+
+[thresholds]
+echo_min_db = 10.0
+double_talk_min_db = 3.0
+speech_max_loss_db = 4.0   # NS давит паузы между словами: RMS речи падает на 2-3 dB и без потери голоса
+quiet_min_reduction_db = 4.0
+burst_max_db = 6.0
+regression_tolerance_db = 1.5
+guard_sec = 0.3
+
+# Протокол этапа 3 (2026-09-11): 10 с музыка, 10 с музыка + речь, 10 с речь.
+[[scenario]]
+name = "take1"
+dir = "take1"
+segments = [
+    { type = "echo", from = 0.0, to = 10.0 },
+    { type = "double_talk", from = 10.0, to = 20.0 },
+    { type = "speech", from = 20.0, to = 30.0 },
+]
+baseline = [28.9, 3.4, 2.7]   # 2026-09-12, AEC3 + NS high, lead 5 ms
+
+# Сценарии scripts/record-corpus.ps1 (recordings/corpus/<name>).
+[[scenario]]
+name = "silence"
+dir = "corpus/silence"
+segments = [{ type = "silence", from = 0.0, to = 20.0 }]
+
+[[scenario]]
+name = "noise"
+dir = "corpus/noise"
+segments = [{ type = "noise", from = 0.0, to = 20.0 }]
+
+[[scenario]]
+name = "music"
+dir = "corpus/music"
+segments = [{ type = "echo", from = 1.0, to = 30.0 }]
+
+[[scenario]]
+name = "speech"
+dir = "corpus/speech"
+segments = [{ type = "speech", from = 0.0, to = 30.0 }]
+
+[[scenario]]
+name = "music-speech"
+dir = "corpus/music-speech"
+segments = [{ type = "double_talk", from = 1.0, to = 30.0 }]
