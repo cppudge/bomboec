@@ -1,0 +1,6 @@
+build/
+out/
+CMakeUserPresets.json
+*.wav
+recordings/
+authorized_tokens.json

@@ -1,0 +1,4 @@
+sources:
+  "2.1":
+    url: "https://freedesktop.org/software/pulseaudio/webrtc-audio-processing/webrtc-audio-processing-2.1.tar.xz"
+    sha256: "ae9302824b2038d394f10213cab05312c564a038434269f11dbf68f511f9f9fe"
