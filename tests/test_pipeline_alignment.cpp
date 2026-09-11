@@ -81,8 +81,9 @@ struct AecResult {
 };
 
 // Reference: белый шум (стерео, второй канал 0.8 первого). Микрофон слышит только эхо:
-// моно-сумму reference с задержкой 30 ms и ослаблением 0.5 по истинному времени.
-AecResult cancelEcho(PipelineSim& sim, double seconds, bool speechBand = false) {
+// моно-сумму reference с задержкой echoDelaySec (динамик -> микрофон) и ослаблением 0.5
+// по истинному времени.
+AecResult cancelEcho(PipelineSim& sim, double seconds, bool speechBand = false, double echoDelaySec = 0.030) {
     std::mt19937 rng(7);
     std::normal_distribution<float> noise(0.0f, 0.1f);
     std::vector<float> refMono(size_t((seconds + 2.0) * 48000.0));
@@ -114,7 +115,7 @@ AecResult cancelEcho(PipelineSim& sim, double seconds, bool speechBand = false) 
     std::vector<float> micIn;
     micIn.reserve(size_t(seconds * 48000.0) + 48000);
     sim.micSignal = [&](uint64_t i, uint32_t) {
-        const double t = sim.mic.timeOf(double(i)) - 0.030;
+        const double t = sim.mic.timeOf(double(i)) - echoDelaySec;
         const float echo = 0.5f * 0.9f * refAt(sim.ref.indexAt(t));
         if (i >= micIn.size()) micIn.push_back(echo);
         return echo;
@@ -195,4 +196,15 @@ TEST_CASE("AEC3 cancels echo on a jittered, drifting timeline", "[pipeline][aec]
         INFO("attenuation " << r.attenuationDb << " dB, ref jumps " << r.refJumps);
         CHECK(r.attenuationDb > 15.0);
     }
+}
+
+// Причинность AEC3: эхо должно приходить в микрофон позже поданного reference, то есть
+// задержка динамик -> микрофон должна быть больше reference_lead_ms. На выходах с малой
+// задержкой (USB-ЦАП, 12 ms) lead 20 ms оставлял бы AEC без эха для вычитания.
+TEST_CASE("AEC3 cancels a 12 ms echo with the default reference lead", "[pipeline][aec]") {
+    PipelineSim sim;
+    REQUIRE(sim.settings.referenceLeadMs <= 5);
+    const AecResult r = cancelEcho(sim, 40.0, false, 0.012);
+    INFO("attenuation " << r.attenuationDb << " dB, ref jumps " << r.refJumps);
+    CHECK(r.attenuationDb > 11.0);
 }

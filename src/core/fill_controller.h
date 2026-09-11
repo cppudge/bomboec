@@ -33,6 +33,7 @@ public:
         prev_.store(kNone, std::memory_order_relaxed);
         reads_ = 0;
         acc_ = 0.0;
+        resetAcc_.store(false, std::memory_order_relaxed);
     }
 
     uint32_t target() const { return target_; }
@@ -55,6 +56,9 @@ public:
         cur_.store(kNone, std::memory_order_relaxed);
         prev_.store(kNone, std::memory_order_relaxed);
         reads_ = 0;
+        // Остаток дробной коррекции тоже про прежнее состояние; acc_ принадлежит
+        // producer'у, поэтому сбросит его сам step().
+        resetAcc_.store(true, std::memory_order_relaxed);
     }
 
     // Минимальный запас за окно; kNone, пока измерений не было.
@@ -67,6 +71,7 @@ public:
 
     // Producer, раз на кадр: сколько сэмплов добавить (+) или убрать (-).
     int step() {
+        if (resetAcc_.exchange(false, std::memory_order_relaxed)) acc_ = 0.0;
         const uint32_t m = marginFrames();
         if (m == kNone) return 0;
         const double err = double(target_) - double(m);  // >0: запаса мало, добавляем
@@ -83,6 +88,7 @@ private:
     double gain_ = 1.0 / 1200.0;
     int maxStep_ = 4;
     std::atomic<uint32_t> cur_{kNone}, prev_{kNone};
+    std::atomic<bool> resetAcc_{false};
     uint32_t reads_ = 0;  // только consumer
     double acc_ = 0.0;    // только producer
 };

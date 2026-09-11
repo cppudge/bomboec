@@ -28,7 +28,10 @@ struct PacketFlags {
 //    заново с этого пакета (stats().resyncs). Иначе одна метка qpc = 0 залила
 //    бы тишиной всё кольцо;
 //  - пакет с timestampError встаёт вплотную к предыдущему;
-//  - каждый записанный пакет становится якорем Timeline (индекс сэмпла <-> тики).
+//  - каждый записанный пакет становится якорем Timeline (индекс сэмпла <-> тики);
+//  - если кольцо переполнилось и часть сэмплов потеряна (stats().dropped), индексы
+//    кольца больше не соответствуют времени старых якорей: Timeline начинается
+//    заново со следующего записанного пакета (считается как resync).
 //
 // Ожидаемое время следующего пакета переустанавливается от метки каждого
 // пакета, поэтому дрейф часов устройства не накапливается в ошибку:
@@ -70,8 +73,9 @@ public:
         originTicks_ = 0;
         expectedTicks_ = 0;
         stats_ = {};
+        lostSinceAnchor_ = false;
         timeline_.reset();
-        publishedTimeline_.store(timeline_);
+        publishedTimeline_.store(timeline_.snapshot());
         publishedStats_.store(stats_);
     }
 
@@ -99,6 +103,7 @@ public:
             const auto fill = uint32_t(deltaSamples);  // не больше resyncSamples_
             const uint32_t written = ring_->writeSilence(fill);
             stats_.dropped += fill - written;
+            if (written < fill) lostSinceAnchor_ = true;
             ++stats_.gaps;
             stats_.gapSamples += fill;
         } else if (deltaSamples < -thresholdSamples_) {
@@ -114,6 +119,7 @@ public:
         if (n > 0) {
             written = ring_->write(interleaved + size_t(skip) * ring_->channels(), n);
             stats_.dropped += n - written;
+            if (written < n) lostSinceAnchor_ = true;
         }
 
         // Якорь: первый записанный сэмпл пакета соответствует моменту ticks + skip/rate.
@@ -122,9 +128,16 @@ public:
         // пакету и якорь не ставится (кроме ресинхронизации: там отсчёт начинается заново).
         if (written > 0 || resync) {
             const uint64_t firstIndex = ring_->totalWritten() - written;
+            // Потеря сэмплов между якорями сместила бы оценку частоты навсегда
+            // (dropped / span): после неё таймлайн начинается с этого якоря.
+            if (lostSinceAnchor_ && !resync && written > 0) {
+                ++stats_.resyncs;
+                timeline_.reset();
+            }
             if (resync) timeline_.reset();
             timeline_.anchor(ticks + std::llround(double(skip) / rate_ * tps_), firstIndex);
-            publishedTimeline_.store(timeline_);
+            lostSinceAnchor_ = written < n;  // хвост этого пакета потерян: следующий якорь снова с нуля
+            publishedTimeline_.store(timeline_.snapshot());
             started_.store(true, std::memory_order_release);
         }
         publishedStats_.store(stats_);
@@ -134,7 +147,7 @@ public:
 
     // Из любого потока.
     bool started() const { return started_.load(std::memory_order_acquire); }
-    Timeline timelineSnapshot() const { return publishedTimeline_.load(); }
+    Timeline::Snapshot timelineSnapshot() const { return publishedTimeline_.load(); }
     Stats statsSnapshot() const { return publishedStats_.load(); }
 
     // Только из потока-producer или когда push() не вызывается.
@@ -149,11 +162,12 @@ private:
     int64_t thresholdSamples_ = 120;
     int64_t resyncSamples_ = 9600;
     Timeline timeline_;
-    SeqLock<Timeline> publishedTimeline_;
+    SeqLock<Timeline::Snapshot> publishedTimeline_;
     SeqLock<Stats> publishedStats_;
     std::atomic<bool> started_{false};
     int64_t originTicks_ = 0;
     int64_t expectedTicks_ = 0;
+    bool lostSinceAnchor_ = false;  // после последнего якоря кольцо отбросило сэмплы
     Stats stats_;
 };
 

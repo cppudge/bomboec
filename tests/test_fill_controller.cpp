@@ -95,7 +95,9 @@ static void simulate(double driftPpm, uint32_t target, uint32_t& finalMargin, in
         if (step > 100 * 200) minMarginLate = std::min(minMarginLate, fc.marginFrames());
     }
     finalMargin = fc.marginFrames();
-    (void)minMarginLate;
+    // После 200 с запас держится у цели: не ниже половины, не выше цели плюс окно измерений.
+    REQUIRE(minMarginLate >= target / 2);
+    REQUIRE(minMarginLate <= target + 200);
 }
 
 TEST_CASE("FillController converges under consumer drift", "[fill]") {
@@ -103,22 +105,23 @@ TEST_CASE("FillController converges under consumer drift", "[fill]") {
     uint32_t margin = 0;
     int64_t net = 0;
 
+    // Установившаяся ошибка при 140 ppm и gain 1/1200 около 2 ms (96 сэмплов).
     SECTION("consumer slower (+140 ppm): samples must be dropped") {
         simulate(+140.0, target, margin, net);
         REQUIRE(net < 0);
-        REQUIRE(margin < target + 480);  // без регулятора набежало бы 2 с
-        REQUIRE(margin > target / 2);
+        REQUIRE(margin >= target - 150);
+        REQUIRE(margin <= target + 150);  // без регулятора набежало бы 2 с
     }
     SECTION("consumer faster (-140 ppm): samples must be inserted") {
         simulate(-140.0, target, margin, net);
         REQUIRE(net > 0);
-        REQUIRE(margin > target / 2);
-        REQUIRE(margin < target + 480);
+        REQUIRE(margin >= target - 150);
+        REQUIRE(margin <= target + 150);
     }
     SECTION("no drift: removes only the extra prefilled frame") {
         simulate(0.0, target, margin, net);
         REQUIRE(std::llabs(net + 480) < 100);
-        REQUIRE(margin > target / 2);
-        REQUIRE(margin < target + 480);
+        REQUIRE(margin >= target - 50);
+        REQUIRE(margin <= target + 50);
     }
 }

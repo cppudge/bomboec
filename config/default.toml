@@ -7,18 +7,19 @@ frame_ms = 10
 mic_channels = 1
 reference_channels = 2
 
-# Устройства выбираются в меню трея и хранятся в bomboec.state.toml рядом с exe (этот
-# файл приложение не переписывает). Вручную их можно задать секцией [devices] здесь:
+# Устройства выбираются в меню трея и хранятся в bomboec.state.toml рядом с exe. Этот конфиг
+# приложение не переписывает. Вручную устройства можно задать секцией [devices] здесь:
 #   [devices]
 #   mic = "{0.0.1.00000000}.{...}"   # endpoint id; пусто = устройство по умолчанию
-#   speakers = ""                    # render endpoint для loopback (reference)
+#   speakers = ""                    # render endpoint для loopback (reference); необязателен
 #   output = ""                      # render endpoint для очищенного сигнала (virtual cable)
-#   mic_name = ""                    # имена: запасной поиск, если id сменился
-# bomboec.state.toml, если он есть, перекрывает эту секцию целиком.
+#   mic_name = ""                    # имена (mic_name, speakers_name, output_name): запасной
+#                                    # поиск, если id сменился
+# Ключи [devices] из bomboec.state.toml, если он есть, перекрывают одноимённые ключи отсюда.
 
 [engine]
 mic_raw = true
-reference_lead_ms = 20
+reference_lead_ms = 5   # reference раньше кадра mic; больше задержки динамик -> микрофон нельзя (см. README)
 output_buffer_ms = 10   # запас в выходном кольце (джиттер микрофона)
 output_render_ms = 20   # заполнение буфера WASAPI выхода, не меньше 2 периодов
 output_channels = 2

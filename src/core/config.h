@@ -25,9 +25,12 @@ struct EngineSettings {
     // сменился (переустановка драйвера кабеля меняет ID, имя остаётся).
     std::string micName, speakersName, outputName;
     bool micRaw = true;
-    uint32_t referenceLeadMs = 20;  // reference берётся на столько раньше mic (запас на джиттер loopback)
-    uint32_t outputBufferMs = 10;   // целевой запас в выходном кольце после чтения render-потоком
-    uint32_t outputRenderMs = 20;   // целевое заполнение буфера WASAPI выхода (>= 2 периодов engine)
+    // Reference для кадра mic берётся на столько раньше времени кадра. Малый запас на
+    // доставку loopback-пакетов; больше нельзя: эхо должно приходить в микрофон позже
+    // поданного reference (причинность AEC3), а задержка динамик -> микрофон бывает 10-30 ms.
+    uint32_t referenceLeadMs = 5;
+    uint32_t outputBufferMs = 10;  // целевой запас в выходном кольце после чтения render-потоком
+    uint32_t outputRenderMs = 20;  // целевое заполнение буфера WASAPI выхода (>= 2 периодов engine)
     uint32_t outputChannels = 2;
     std::string recordDir;  // непусто: debug-запись mic_raw/ref/out в WAV
 };
@@ -49,7 +52,8 @@ bool loadConfig(const std::filesystem::path& path, AppConfig& out, std::string& 
 
 // Состояние приложения (устройства, выбранные в меню трея) живёт в отдельном файле
 // (bomboec.state.toml): сохранение не трогает комментарии и правки пользователя в
-// конфиге. Если файл есть, его [devices] перекрывает [devices] конфига целиком.
+// конфиге. Если файл есть, ключи его [devices] перекрывают одноимённые ключи конфига (файл,
+// записанный saveState, содержит все шесть).
 // loadState без файла возвращает true и ничего не меняет.
 bool loadState(const std::filesystem::path& path, EngineSettings& settings, std::string& error);
 bool saveState(const std::filesystem::path& path, const EngineSettings& settings, std::string& error);

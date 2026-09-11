@@ -98,6 +98,7 @@ private:
     bool refLocked_ = false;
     double refPos_ = 0.0;            // сглаженная дробная позиция reference для текущего кадра
     int64_t refIndex_ = 0;           // целый индекс чтения: следует за refPos_ с гистерезисом
+    int relockFrames_ = 0;           // кадров подряд с расхождением больше kRelockSamples
     uint64_t underrunsSeen_ = 0;     // mic-поток: сколько опустошений outRing уже восстановлено
     uint32_t softExcessFrames_ = 0;  // излишек сверх цели, после которого выбрасываем разом
     std::vector<float> fadeBuf_;     // render-поток: начало выброшенного куска для кроссфейда

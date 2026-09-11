@@ -166,3 +166,27 @@ TEST_CASE("PacketAssembler anchors on what the full ring actually took") {
         CHECK(pa.timeline().lastSample() == 2 * kPacket);
     }
 }
+
+TEST_CASE("PacketAssembler restarts the timeline after the ring dropped samples") {
+    std::vector<float> pkt(kPacket, 1.0f);
+    RingBuffer ring(1, 2 * kPacket);
+    PacketAssembler pa;
+    pa.configure(kRate, kTps, &ring);
+    const int64_t t = 10'000'000;
+    pa.push(pkt.data(), kPacket, t);
+    pa.push(pkt.data(), kPacket, t + kPacketTicks);
+    pa.push(pkt.data(), kPacket, t + 2 * kPacketTicks);  // кольцо полно: пакет потерян
+    CHECK(pa.stats().dropped == kPacket);
+    CHECK(pa.stats().resyncs == 0);
+
+    std::vector<float> sink(2 * kPacket);
+    ring.read(sink.data(), 2 * kPacket);
+    pa.push(pkt.data(), kPacket, t + 3 * kPacketTicks);
+    // Между старыми якорями и новым пропал пакет: по ним частота вышла бы 3/4 номинала.
+    CHECK(pa.stats().resyncs == 1);
+    CHECK(pa.timeline().lastSample() == 2 * kPacket);
+    CHECK(pa.timeline().lastTicks() == t + 3 * kPacketTicks);
+    pa.push(pkt.data(), kPacket, t + 4 * kPacketTicks);
+    CHECK(pa.stats().resyncs == 1);
+    CHECK(pa.timeline().estimatedRate() == Approx(kRate));  // окно короче 2 с: номинал, без смещения
+}

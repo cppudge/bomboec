@@ -18,7 +18,8 @@ constexpr int kMaxStretch = 4;  // максимум сэмплов коррек�
 // Выравнивание reference (referencePosition).
 constexpr double kPull = 0.01;            // доля ошибки предсказания, на которую позиция подтягивается за кадр
 constexpr double kSlipHysteresis = 0.75;  // целый индекс сдвигается, когда позиция ушла от него на столько
-constexpr double kRelockSamples = 480.0;  // расхождение больше 10 ms: позиция переустанавливается
+constexpr double kRelockSamples = 480.0;  // расхождение больше 10 ms: позиция переустанавливается...
+constexpr int kRelockFrames = 3;          // ...если держится столько кадров подряд (одиночный выброс метки не в счёт)
 
 // Предел задержки выхода (fillOutput).
 constexpr uint32_t kSoftExcessMs = 30;   // устойчивый излишек сверх цели, после которого выбрасываем
@@ -62,6 +63,7 @@ bool Pipeline::configure(const PipelineFormat& fmt, const EngineSettings& settin
     leadTicks_ = int64_t(settings_.referenceLeadMs) * 10'000;
     refKeepFrames_ = rate / 2;  // держим 500 ms истории reference позади точки чтения
     refLocked_ = false;
+    relockFrames_ = 0;
     underrunsSeen_ = 0;
     softExcessFrames_ = rate * kSoftExcessMs / 1000;
     fadeBuf_.assign(size_t(rate / 1000) * settings_.outputChannels, 0.0f);  // кроссфейд 1 ms
@@ -111,8 +113,8 @@ void Pipeline::processAvailable() {
         // Reference по таймлайну.
         bool haveRef = false;
         if (refAsm_.started()) {
-            const Timeline mt = micAsm_.timelineSnapshot();
-            const Timeline rt = refAsm_.timelineSnapshot();
+            const Timeline::Snapshot mt = micAsm_.timelineSnapshot();
+            const Timeline::Snapshot rt = refAsm_.timelineSnapshot();
             const double predicted = rt.sampleAt(mt.ticksAt(double(micIndex)) - leadTicks_);
             const int64_t refIndex = referencePosition(predicted, rt.estimatedRate() / mt.estimatedRate());
             if (refIndex >= 0) {  // до начала reference (первые кадры после старта) читать нечего
@@ -195,8 +197,10 @@ void Pipeline::processAvailable() {
 //  - целый индекс чтения меняется на ±1 сэмпл, только когда позиция ушла от него
 //    дальше kSlipHysteresis: проскальзывания редкие (при 140 ppm раз в ~15 кадров)
 //    и без дребезга на границе;
-//  - расхождение больше kRelockSamples (старт, ресинхронизация таймлайна) - сразу
-//    к предсказанию.
+//  - расхождение больше kRelockSamples, которое держится kRelockFrames кадров
+//    подряд (старт, ресинхронизация таймлайна) - сразу к предсказанию. Одиночная
+//    битая метка микрофона сбивает предсказание на кадр-два: позиция в это время
+//    идёт свободным ходом, и AEC3 не получает кадров с чужим reference.
 int64_t Pipeline::referencePosition(double predicted, double ratio) {
     const uint32_t frame = fmt_.frameSamples;
     if (refLocked_) {
@@ -204,6 +208,7 @@ int64_t Pipeline::referencePosition(double predicted, double ratio) {
         refIndex_ += int64_t(frame);
         const double err = predicted - refPos_;
         if (std::abs(err) < kRelockSamples) {
+            relockFrames_ = 0;
             refPos_ += kPull * err;
             const double offset = refPos_ - double(refIndex_);
             if (offset > kSlipHysteresis) ++refIndex_;
@@ -211,9 +216,11 @@ int64_t Pipeline::referencePosition(double predicted, double ratio) {
             if (std::abs(offset) > kSlipHysteresis) refJumps_.fetch_add(1, std::memory_order_relaxed);
             return refIndex_;
         }
+        if (++relockFrames_ < kRelockFrames) return refIndex_;  // свободный ход
         refJumps_.fetch_add(1, std::memory_order_relaxed);
     }
     refLocked_ = true;
+    relockFrames_ = 0;
     refPos_ = predicted;
     refIndex_ = std::llround(predicted);
     return refIndex_;

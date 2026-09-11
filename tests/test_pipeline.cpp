@@ -64,7 +64,7 @@ TEST_CASE("Pipeline aligns the reference by the timeline and passes the micropho
     REQUIRE(errors.size() > 900);
     CHECK(maxAbs(errors) <= 1.0);
 
-    // Кадр 10 ms + доставка пакета 1 ms + фаза чтения + запас output_buffer_ms (10 ms).
+    // Кадр 10 ms + доставка пакета 2 ms + фаза чтения + запас output_buffer_ms (10 ms).
     const std::vector<double> latency = outputLatencyMs(sim, 2.0);
     REQUIRE(!latency.empty());
     const auto [lo, hi] = std::minmax_element(latency.begin(), latency.end());
@@ -105,10 +105,30 @@ TEST_CASE("Pipeline recovers from a bogus microphone timestamp without a latency
     CHECK(s.micResyncs == 2);  // на битом пакете и на следующем
     CHECK(s.outUnderruns == 0);
     CHECK(s.outOverruns == 0);
-    CHECK(s.refMissing <= 3);
     CHECK(s.outBufferedMs <= 30);
-    CHECK(maxAbs(alignmentErrors(sim, 510)) <= 1.0);
+    // Одиночный выброс предсказания не переустанавливает позицию reference: кадры вокруг
+    // битой метки читают reference свободным ходом, а не с чужого места и не нулями.
+    CHECK(s.refMissing <= 2);
+    CHECK(maxAbs(alignmentErrors(sim, 490)) <= 1.5);
     const std::vector<double> latency = outputLatencyMs(sim, 6.0);
     REQUIRE(!latency.empty());
     CHECK(*std::max_element(latency.begin(), latency.end()) <= 40.0);
+}
+
+TEST_CASE("Pipeline runs without reference while the loopback is gone and realigns when it returns", "[pipeline]") {
+    PipelineSim sim;
+    sim.refLostFrom = 4.0;
+    sim.refLostTo = 9.0;
+    REQUIRE(sim.start());
+    sim.run(20.0);
+
+    const PipelineStats s = sim.pipeline.stats();
+    CHECK(s.outUnderruns == 0);
+    CHECK(s.outOverruns == 0);
+    // 5 с без reference: около 500 кадров с нулевым reference, ни одного лишнего после.
+    CHECK(s.refMissing >= 480);
+    CHECK(s.refMissing <= 520);
+    CHECK(s.refResyncs == 1);  // разрыв 5 с больше порога: таймлайн reference начался заново
+    // Через секунду после возвращения loopback reference снова выровнен.
+    CHECK(maxAbs(alignmentErrors(sim, 1000)) <= 1.5);
 }
