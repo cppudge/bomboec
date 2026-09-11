@@ -24,8 +24,7 @@ class FillController {
 public:
     static constexpr uint32_t kNone = UINT32_MAX;
 
-    void configure(uint32_t targetFrames, uint32_t windowReads = 100, double gain = 1.0 / 1200.0,
-                   int maxStep = 4) {
+    void configure(uint32_t targetFrames, uint32_t windowReads = 100, double gain = 1.0 / 1200.0, int maxStep = 4) {
         target_ = targetFrames;
         windowReads_ = std::max<uint32_t>(windowReads, 1);
         gain_ = gain;

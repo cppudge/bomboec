@@ -31,12 +31,11 @@ public:
         uint64_t gapSamples = 0;
         uint64_t overlaps = 0;
         uint64_t overlapSamples = 0;
-        uint64_t dropped = 0;         // не поместилось в ring
-        double maxJitterMs = 0.0;     // максимальное |ожидаемое - реальное| ниже порога
+        uint64_t dropped = 0;      // не поместилось в ring
+        double maxJitterMs = 0.0;  // максимальное |ожидаемое - реальное| ниже порога
     };
 
-    void configure(double nominalRate, double ticksPerSecond, RingBuffer* ring,
-                   double gapThresholdMs = 2.5) {
+    void configure(double nominalRate, double ticksPerSecond, RingBuffer* ring, double gapThresholdMs = 2.5) {
         rate_ = nominalRate;
         tps_ = ticksPerSecond;
         ring_ = ring;
@@ -111,7 +110,8 @@ public:
 private:
     struct SpinGuard {
         explicit SpinGuard(std::atomic_flag& f) : f_(f) {
-            while (f_.test_and_set(std::memory_order_acquire)) {}
+            while (f_.test_and_set(std::memory_order_acquire)) {
+            }
         }
         ~SpinGuard() { f_.clear(std::memory_order_release); }
         std::atomic_flag& f_;

@@ -17,9 +17,9 @@ namespace bomboec::wasapi {
 struct CapturePacket {
     const float* interleaved = nullptr;  // channels() каналов, float32
     uint32_t frames = 0;
-    int64_t qpc100ns = 0;                // время первого сэмпла пакета
-    bool discontinuity = false;          // AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY
-    bool timestampError = false;         // AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR
+    int64_t qpc100ns = 0;         // время первого сэмпла пакета
+    bool discontinuity = false;   // AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY
+    bool timestampError = false;  // AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR
 };
 
 // Захват с endpoint'а (микрофон или loopback с render-устройства) в shared
@@ -32,11 +32,11 @@ struct CapturePacket {
 class CaptureStream {
 public:
     struct Options {
-        bool loopback = false;      // захват с render endpoint'а
-        bool raw = false;           // AUDCLNT_STREAMOPTIONS_RAW: без APO endpoint'а
+        bool loopback = false;  // захват с render endpoint'а
+        bool raw = false;       // AUDCLNT_STREAMOPTIONS_RAW: без APO endpoint'а
         uint32_t sampleRate = 48000;
         uint32_t channels = 1;
-        uint32_t bufferMs = 200;    // ёмкость буфера WASAPI, не задержка
+        uint32_t bufferMs = 200;  // ёмкость буфера WASAPI, не задержка
     };
     using PacketHandler = std::function<void(const CapturePacket&)>;
 

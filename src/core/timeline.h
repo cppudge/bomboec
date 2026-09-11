@@ -15,8 +15,7 @@ namespace bomboec {
 class Timeline {
 public:
     Timeline() = default;
-    Timeline(double nominalRate, double ticksPerSecond)
-        : nominalRate_(nominalRate), ticksPerSecond_(ticksPerSecond) {}
+    Timeline(double nominalRate, double ticksPerSecond) : nominalRate_(nominalRate), ticksPerSecond_(ticksPerSecond) {}
 
     void configure(double nominalRate, double ticksPerSecond) {
         nominalRate_ = nominalRate;

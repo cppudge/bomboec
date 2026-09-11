@@ -21,13 +21,13 @@ namespace bomboec {
 
 struct EngineStatus {
     bool running = false;
-    std::string error;          // фатальная ошибка потоков, если была
+    std::string error;  // фатальная ошибка потоков, если была
     std::string micName, speakersName, outputName;
     bool micRaw = false;
-    float micDb = -100.0f, refDb = -100.0f, outDb = -100.0f;   // уровни последнего кадра
+    float micDb = -100.0f, refDb = -100.0f, outDb = -100.0f;  // уровни последнего кадра
     StageStats stats;
     uint64_t framesProcessed = 0;
-    uint64_t refMissing = 0;     // кадров, где reference не был доступен целиком
+    uint64_t refMissing = 0;  // кадров, где reference не был доступен целиком
     uint64_t micGaps = 0, refGaps = 0;
     uint64_t outUnderruns = 0, outOverruns = 0;
     uint64_t outInserted = 0, outDropped = 0;  // сэмплов добавлено/убрано регулятором заполнения

@@ -37,9 +37,7 @@ public:
     void clear() { std::fill(data_.begin(), data_.end(), 0.0f); }
 
     // Копия содержимого; размеры должны совпадать.
-    void copyFrom(const Frame& other) {
-        std::copy(other.data_.begin(), other.data_.end(), data_.begin());
-    }
+    void copyFrom(const Frame& other) { std::copy(other.data_.begin(), other.data_.end(), data_.begin()); }
 
     // Interleaved <-> planar. src/dst содержат channels()*samples() значений.
     void fromInterleaved(const float* src) {

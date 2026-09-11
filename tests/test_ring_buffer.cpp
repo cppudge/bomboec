@@ -33,7 +33,7 @@ TEST_CASE("RingBuffer write/read with wrap-around") {
 
     std::vector<float> out2(2 * 8);
     CHECK(rb.read(out2.data(), 8) == 8);
-    CHECK(out2[0] == 8.0f);    // остаток первой записи
+    CHECK(out2[0] == 8.0f);  // остаток первой записи
     CHECK(out2[3] == 11.0f);
     CHECK(out2[4] == 100.0f);  // начало второй
     CHECK(out2[15] == 111.0f);

@@ -54,7 +54,7 @@ private:
 };
 
 // Читает файл целиком.
-bool readWavFile(const std::filesystem::path& path, std::vector<float>& interleaved,
-                 uint32_t& channels, uint32_t& sampleRate, std::string& error);
+bool readWavFile(const std::filesystem::path& path, std::vector<float>& interleaved, uint32_t& channels,
+                 uint32_t& sampleRate, std::string& error);
 
 }  // namespace bomboec

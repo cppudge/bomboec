@@ -26,9 +26,7 @@ namespace {
 
 class WebrtcStage final : public IStage {
 public:
-    StageInfo info() const override {
-        return {"webrtc", fmt_.sampleRate, fmt_.frameSamples, caps_, 0};
-    }
+    StageInfo info() const override { return {"webrtc", fmt_.sampleRate, fmt_.frameSamples, caps_, 0}; }
 
     bool init(const PipelineFormat& fmt, const toml::table& cfg, std::string& error) override {
         fmt_ = fmt;

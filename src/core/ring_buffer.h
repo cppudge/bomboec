@@ -27,16 +27,13 @@ public:
     }
 
     // Consumer: отбросить всё накопленное.
-    void reset() {
-        readPos_.store(writePos_.load(std::memory_order_acquire), std::memory_order_release);
-    }
+    void reset() { readPos_.store(writePos_.load(std::memory_order_acquire), std::memory_order_release); }
 
     uint32_t channels() const { return channels_; }
     uint32_t capacity() const { return capacity_; }
 
     uint32_t readable() const {
-        return uint32_t(writePos_.load(std::memory_order_acquire) -
-                        readPos_.load(std::memory_order_acquire));
+        return uint32_t(writePos_.load(std::memory_order_acquire) - readPos_.load(std::memory_order_acquire));
     }
     uint32_t writable() const { return capacity_ - readable(); }
 
@@ -64,8 +61,7 @@ public:
         while (done < n) {
             const uint32_t idx = uint32_t((w + done) % capacity_);
             const uint32_t chunk = std::min(n - done, capacity_ - idx);
-            std::memset(buffer_.data() + size_t(idx) * channels_, 0,
-                        size_t(chunk) * channels_ * sizeof(float));
+            std::memset(buffer_.data() + size_t(idx) * channels_, 0, size_t(chunk) * channels_ * sizeof(float));
             done += chunk;
         }
         writePos_.store(w + n, std::memory_order_release);
@@ -125,8 +121,7 @@ private:
         while (done < frames) {
             const uint32_t idx = uint32_t((pos + done) % capacity_);
             const uint32_t chunk = std::min(frames - done, capacity_ - idx);
-            std::memcpy(buffer_.data() + size_t(idx) * channels_,
-                        src + size_t(done) * channels_,
+            std::memcpy(buffer_.data() + size_t(idx) * channels_, src + size_t(done) * channels_,
                         size_t(chunk) * channels_ * sizeof(float));
             done += chunk;
         }
@@ -137,8 +132,7 @@ private:
         while (done < frames) {
             const uint32_t idx = uint32_t((pos + done) % capacity_);
             const uint32_t chunk = std::min(frames - done, capacity_ - idx);
-            std::memcpy(dst + size_t(done) * channels_,
-                        buffer_.data() + size_t(idx) * channels_,
+            std::memcpy(dst + size_t(done) * channels_, buffer_.data() + size_t(idx) * channels_,
                         size_t(chunk) * channels_ * sizeof(float));
             done += chunk;
         }

@@ -89,7 +89,7 @@ TEST_CASE("FillController converges under consumer drift", "[fill]") {
     SECTION("consumer slower (+140 ppm): samples must be dropped") {
         simulate(+140.0, target, margin, net);
         REQUIRE(net < 0);
-        REQUIRE(margin < target + 480);   // без регулятора набежало бы 2 с
+        REQUIRE(margin < target + 480);  // без регулятора набежало бы 2 с
         REQUIRE(margin > target / 2);
     }
     SECTION("consumer faster (-140 ppm): samples must be inserted") {

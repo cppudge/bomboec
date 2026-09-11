@@ -38,7 +38,7 @@ struct Track {
     RingBuffer ring;
     PacketAssembler assembler;
     WavWriter writer;
-    uint64_t skip = 0;            // сэмплы до общего t0 (уменьшается при drain)
+    uint64_t skip = 0;  // сэмплы до общего t0 (уменьшается при drain)
     uint64_t initialSkip = 0;
     uint64_t written = 0;
     std::atomic<uint64_t> packets{0};
@@ -136,12 +136,14 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(outDir, ec);
 
     std::string error;
-    ws::ComPtr<IMMDevice> micDev = ws::openDevice(ws::Flow::Capture, ws::fromUtf8(args["mic"].as<std::string>()), error);
+    ws::ComPtr<IMMDevice> micDev =
+        ws::openDevice(ws::Flow::Capture, ws::fromUtf8(args["mic"].as<std::string>()), error);
     if (!micDev) {
         std::fprintf(stderr, "mic: %s\n", error.c_str());
         return 2;
     }
-    ws::ComPtr<IMMDevice> spkDev = ws::openDevice(ws::Flow::Render, ws::fromUtf8(args["speakers"].as<std::string>()), error);
+    ws::ComPtr<IMMDevice> spkDev =
+        ws::openDevice(ws::Flow::Render, ws::fromUtf8(args["speakers"].as<std::string>()), error);
     if (!spkDev) {
         std::fprintf(stderr, "speakers: %s\n", error.c_str());
         return 2;
@@ -151,7 +153,8 @@ int main(int argc, char** argv) {
 
     Track mic("mic", 1);
     Track ref("ref", 2);
-    if (!mic.writer.open(outDir / "mic.wav", 1, kRate, error) || !ref.writer.open(outDir / "ref.wav", 2, kRate, error)) {
+    if (!mic.writer.open(outDir / "mic.wav", 1, kRate, error) ||
+        !ref.writer.open(outDir / "ref.wav", 2, kRate, error)) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 3;
     }
@@ -187,8 +190,7 @@ int main(int argc, char** argv) {
                 micStream.rawApplied() ? "on" : "off", micStream.deviceChannels(),
                 micStream.eventDriven() ? "event" : "polling");
     std::printf("loopback: %s (engine channels %u, %s, keepalive %s)\n", ws::toUtf8(spkInfo.name).c_str(),
-                refStream.deviceChannels(), refStream.eventDriven() ? "event" : "polling",
-                keepaliveOn ? "on" : "off");
+                refStream.deviceChannels(), refStream.eventDriven() ? "event" : "polling", keepaliveOn ? "on" : "off");
 
     if (!micStream.start(error) || !refStream.start(error)) {
         std::fprintf(stderr, "start: %s\n", error.c_str());
@@ -211,8 +213,8 @@ int main(int argc, char** argv) {
         t->skip = uint64_t(double(t0 - t->assembler.originTicks()) * kRate / kTps + 0.5);
         t->initialSkip = t->skip;
     }
-    std::printf("t0 aligned: mic skips %llu samples, ref skips %llu samples\n",
-                (unsigned long long)mic.skip, (unsigned long long)ref.skip);
+    std::printf("t0 aligned: mic skips %llu samples, ref skips %llu samples\n", (unsigned long long)mic.skip,
+                (unsigned long long)ref.skip);
 
     const auto deadline = startWall + std::chrono::milliseconds(int64_t(seconds * 1000));
     auto nextReport = startWall + std::chrono::seconds(1);
@@ -224,8 +226,8 @@ int main(int argc, char** argv) {
         if (now >= nextReport) {
             nextReport += std::chrono::seconds(1);
             const double elapsed = std::chrono::duration<double>(now - startWall).count();
-            std::printf("\r%5.1f s  mic %llu  ref %llu  gaps %llu/%llu  drift %+.1f/%+.1f ppm   ",
-                        elapsed, (unsigned long long)mic.written, (unsigned long long)ref.written,
+            std::printf("\r%5.1f s  mic %llu  ref %llu  gaps %llu/%llu  drift %+.1f/%+.1f ppm   ", elapsed,
+                        (unsigned long long)mic.written, (unsigned long long)ref.written,
                         (unsigned long long)mic.assembler.stats().gaps, (unsigned long long)ref.assembler.stats().gaps,
                         mic.assembler.timeline().driftPpm(), ref.assembler.timeline().driftPpm());
             std::fflush(stdout);
@@ -264,11 +266,11 @@ int main(int argc, char** argv) {
                          "    \"dropped\": %llu, \"max_jitter_ms\": %.3f, \"timestamp_errors\": %llu,\n"
                          "    \"discontinuities\": %llu, \"estimated_rate\": %.3f, \"drift_ppm\": %.2f},\n",
                          t->name, t->channels, (unsigned long long)t->written, (unsigned long long)s.packets,
-                         (unsigned long long)t->initialSkip, (unsigned long long)s.gaps, (unsigned long long)s.gapSamples,
-                         (unsigned long long)s.overlaps, (unsigned long long)s.overlapSamples,
-                         (unsigned long long)s.dropped, s.maxJitterMs, (unsigned long long)t->tsErrors.load(),
-                         (unsigned long long)t->discontinuities.load(), t->assembler.timeline().estimatedRate(),
-                         t->assembler.timeline().driftPpm());
+                         (unsigned long long)t->initialSkip, (unsigned long long)s.gaps,
+                         (unsigned long long)s.gapSamples, (unsigned long long)s.overlaps,
+                         (unsigned long long)s.overlapSamples, (unsigned long long)s.dropped, s.maxJitterMs,
+                         (unsigned long long)t->tsErrors.load(), (unsigned long long)t->discontinuities.load(),
+                         t->assembler.timeline().estimatedRate(), t->assembler.timeline().driftPpm());
         }
         std::fprintf(f, "  \"relative_drift_ppm\": %.2f\n}\n",
                      mic.assembler.timeline().driftPpm() - ref.assembler.timeline().driftPpm());

@@ -8,7 +8,7 @@ namespace bomboec {
 // из/в форматы устройств выполняется на границах (WASAPI, WAV).
 struct PipelineFormat {
     uint32_t sampleRate = 48000;
-    uint32_t frameSamples = 480;   // 10 ms при 48 kHz
+    uint32_t frameSamples = 480;  // 10 ms при 48 kHz
     uint32_t micChannels = 1;
     uint32_t referenceChannels = 2;
 

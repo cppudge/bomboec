@@ -23,8 +23,9 @@ std::string hresultToString(HRESULT hr) {
         default: break;
     }
     char* msg = nullptr;
-    const DWORD n = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
-                                   nullptr, DWORD(hr), 0, reinterpret_cast<char*>(&msg), 0, nullptr);
+    const DWORD n =
+        FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                       nullptr, DWORD(hr), 0, reinterpret_cast<char*>(&msg), 0, nullptr);
     std::string out;
     if (n && msg) {
         out.assign(msg, n);

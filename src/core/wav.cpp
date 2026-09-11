@@ -27,8 +27,8 @@ size_t readCb(void* user, void* data, size_t bytes) {
 }
 
 drwav_bool32 seekCb(void* user, int offset, drwav_seek_origin origin) {
-    return _fseeki64(static_cast<std::FILE*>(user), offset,
-                     origin == drwav_seek_origin_start ? SEEK_SET : SEEK_CUR) == 0;
+    return _fseeki64(static_cast<std::FILE*>(user), offset, origin == drwav_seek_origin_start ? SEEK_SET : SEEK_CUR) ==
+           0;
 }
 
 }  // namespace
@@ -131,8 +131,8 @@ void WavReader::close() {
     }
 }
 
-bool readWavFile(const std::filesystem::path& path, std::vector<float>& interleaved,
-                 uint32_t& channels, uint32_t& sampleRate, std::string& error) {
+bool readWavFile(const std::filesystem::path& path, std::vector<float>& interleaved, uint32_t& channels,
+                 uint32_t& sampleRate, std::string& error) {
     WavReader r;
     if (!r.open(path, error)) return false;
     channels = r.channels();

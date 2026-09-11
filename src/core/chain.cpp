@@ -17,16 +17,14 @@ bool Chain::init(const PipelineFormat& fmt, std::string& error) {
         }
         const StageInfo info = s.info();
         if (info.sampleRate != fmt.sampleRate || info.frameSamples != fmt.frameSamples) {
-            error = "stage '" + info.id + "' format mismatch: wants " +
-                    std::to_string(info.sampleRate) + " Hz / " + std::to_string(info.frameSamples) +
-                    " samples, pipeline is " + std::to_string(fmt.sampleRate) + " Hz / " +
-                    std::to_string(fmt.frameSamples);
+            error = "stage '" + info.id + "' format mismatch: wants " + std::to_string(info.sampleRate) + " Hz / " +
+                    std::to_string(info.frameSamples) + " samples, pipeline is " + std::to_string(fmt.sampleRate) +
+                    " Hz / " + std::to_string(fmt.frameSamples);
             return false;
         }
         for (Cap c : {Cap::Hpf, Cap::Aec, Cap::Ns, Cap::Agc, Cap::Limiter}) {
             if (hasCap(info.caps, c) && hasCap(caps_, c)) {
-                error = "capability '" + std::string(capName(c)) + "' declared twice (stage '" +
-                        info.id + "')";
+                error = "capability '" + std::string(capName(c)) + "' declared twice (stage '" + info.id + "')";
                 return false;
             }
         }

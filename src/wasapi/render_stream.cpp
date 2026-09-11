@@ -31,14 +31,15 @@ bool RenderStream::open(IMMDevice* device, const Options& options, FillHandler h
     f.Format.nAvgBytesPerSec = options.sampleRate * f.Format.nBlockAlign;
     f.Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
     f.Samples.wValidBitsPerSample = 32;
-    f.dwChannelMask = options.channels == 1 ? SPEAKER_FRONT_CENTER
-                    : options.channels == 2 ? (SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT) : 0;
+    f.dwChannelMask = options.channels == 1   ? SPEAKER_FRONT_CENTER
+                      : options.channels == 2 ? (SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT)
+                                              : 0;
     f.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
 
     const DWORD flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
                         AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY;
-    hr = client_->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, REFERENCE_TIME(options.bufferMs) * 10'000, 0,
-                             &f.Format, nullptr);
+    hr = client_->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, REFERENCE_TIME(options.bufferMs) * 10'000, 0, &f.Format,
+                             nullptr);
     if (FAILED(hr)) {
         error = "IAudioClient::Initialize (render): " + hresultToString(hr);
         client_.Reset();
@@ -110,9 +111,7 @@ void RenderStream::close() {
     stopEvent_.reset();
 }
 
-std::string RenderStream::lastError() const {
-    return hasError_.load() ? threadError_ : std::string();
-}
+std::string RenderStream::lastError() const { return hasError_.load() ? threadError_ : std::string(); }
 
 void RenderStream::threadMain() {
     ComInit com;

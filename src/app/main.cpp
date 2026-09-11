@@ -142,7 +142,8 @@ void resolveDevicesByName(App& app) {
     app.capDevices = ws::enumerateDevices(ws::Flow::Capture, error);
     app.renDevices = ws::enumerateDevices(ws::Flow::Render, error);
     bool changed = false;
-    auto fix = [&](std::string& id, const std::string& name, const std::vector<ws::DeviceInfo>& list, const char* what) {
+    auto fix = [&](std::string& id, const std::string& name, const std::vector<ws::DeviceInfo>& list,
+                   const char* what) {
         if (id.empty()) return;
         const std::wstring wid = ws::fromUtf8(id);
         for (const ws::DeviceInfo& d : list) {
@@ -210,10 +211,11 @@ std::string statusText(App& app) {
     const EngineStatus s = app.engine.status();
     char buf[2048];
     if (!s.running) {
-        std::snprintf(buf, sizeof(buf),
-                      "stopped\r\n\r\n%s\r\n\r\nПравый клик по иконке в трее: выбор микрофона, колонок и выхода, старт.\r\n"
-                      "Конфиг: %s\r\nЛог: %s",
-                      app.lastError.c_str(), app.configPath.string().c_str(), app.logPath.string().c_str());
+        std::snprintf(
+            buf, sizeof(buf),
+            "stopped\r\n\r\n%s\r\n\r\nПравый клик по иконке в трее: выбор микрофона, колонок и выхода, старт.\r\n"
+            "Конфиг: %s\r\nЛог: %s",
+            app.lastError.c_str(), app.configPath.string().c_str(), app.logPath.string().c_str());
         return buf;
     }
     auto opt = [](const std::optional<double>& v, const char* unit) {
@@ -231,14 +233,13 @@ std::string statusText(App& app) {
                   "fill ctl   inserted %llu   dropped %llu samples\r\n"
                   "drift      mic %+.0f ppm   ref %+.0f ppm\r\n"
                   "frames     %llu\r\n%s",
-                  s.micName.c_str(), s.micRaw ? "on" : "off", s.speakersName.c_str(), s.outputName.c_str(),
-                  s.micDb, s.refDb, s.outDb, opt(s.stats.delayMs, "ms").c_str(), opt(s.stats.erlDb, "dB").c_str(),
+                  s.micName.c_str(), s.micRaw ? "on" : "off", s.speakersName.c_str(), s.outputName.c_str(), s.micDb,
+                  s.refDb, s.outDb, opt(s.stats.delayMs, "ms").c_str(), opt(s.stats.erlDb, "dB").c_str(),
                   opt(s.stats.erleDb, "dB").c_str(), s.referenceLeadMs, (unsigned long long)s.refMissing,
                   (unsigned long long)s.micGaps, (unsigned long long)s.refGaps, s.outBufferedMs, s.outMarginMs,
                   s.outRenderMs, (unsigned long long)s.outUnderruns, (unsigned long long)s.outOverruns,
-                  (unsigned long long)s.outInserted, (unsigned long long)s.outDropped, s.micDriftPpm,
-                  s.refDriftPpm, (unsigned long long)s.framesProcessed,
-                  s.error.empty() ? "" : ("ERROR: " + s.error).c_str());
+                  (unsigned long long)s.outInserted, (unsigned long long)s.outDropped, s.micDriftPpm, s.refDriftPpm,
+                  (unsigned long long)s.framesProcessed, s.error.empty() ? "" : ("ERROR: " + s.error).c_str());
     return buf;
 }
 
@@ -322,7 +323,8 @@ void showMenu(App& app) {
     DestroyMenu(menu);
 }
 
-void selectDevice(App& app, std::string& id, std::string& name, const std::vector<ws::DeviceInfo>& devices, UINT index) {
+void selectDevice(App& app, std::string& id, std::string& name, const std::vector<ws::DeviceInfo>& devices,
+                  UINT index) {
     if (index == 0 || index - 1 >= devices.size()) {
         id.clear();
         name.clear();
@@ -339,7 +341,8 @@ void selectDevice(App& app, std::string& id, std::string& name, const std::vecto
 void handleCommand(App& app, UINT id) {
     if (id == ID_TOGGLE) {
         app.wantRunning = !app.engine.running();
-        if (app.wantRunning) startEngine(app); else stopEngine(app);
+        if (app.wantRunning) startEngine(app);
+        else stopEngine(app);
     } else if (id == ID_STATUS) {
         showStatusWindow(app);
     } else if (id == ID_CONFIG) {
@@ -371,12 +374,8 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             if (LOWORD(lp) == WM_RBUTTONUP || LOWORD(lp) == WM_CONTEXTMENU) showMenu(app);
             else if (LOWORD(lp) == WM_LBUTTONUP || LOWORD(lp) == WM_LBUTTONDBLCLK) showStatusWindow(app);
             return 0;
-        case WM_SHOW_STATUS:
-            showStatusWindow(app);
-            return 0;
-        case WM_COMMAND:
-            handleCommand(app, LOWORD(wp));
-            return 0;
+        case WM_SHOW_STATUS: showStatusWindow(app); return 0;
+        case WM_COMMAND: handleCommand(app, LOWORD(wp)); return 0;
         case WM_TIMER:
             if (wp == kWatchdogTimer && app.wantRunning && app.engine.running()) {
                 const EngineStatus s = app.engine.status();

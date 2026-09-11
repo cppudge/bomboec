@@ -150,9 +150,7 @@ void Engine::stop() {
     chain_.reset();
 }
 
-void Engine::onRefPacket(const wasapi::CapturePacket& p) {
-    refAsm_.push(p.interleaved, p.frames, p.qpc100ns);
-}
+void Engine::onRefPacket(const wasapi::CapturePacket& p) { refAsm_.push(p.interleaved, p.frames, p.qpc100ns); }
 
 void Engine::onMicPacket(const wasapi::CapturePacket& p) {
     micAsm_.push(p.interleaved, p.frames, p.qpc100ns);
@@ -279,7 +277,8 @@ EngineStatus Engine::status() const {
     s.refDriftPpm = refAsm_.timelineSnapshot().driftPpm();
     s.outBufferedMs = outRing_.readable() * 1000 / fmt_.sampleRate;
     if (chain_) s.stats = chain_->stats();
-    for (const std::string& e : {micStream_.lastError(), refStream_.lastError(), output_.lastError(), keepalive_.lastError()}) {
+    for (const std::string& e :
+         {micStream_.lastError(), refStream_.lastError(), output_.lastError(), keepalive_.lastError()}) {
         if (!e.empty()) {
             s.error = e;
             break;

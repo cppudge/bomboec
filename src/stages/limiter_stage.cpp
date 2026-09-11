@@ -12,9 +12,7 @@ namespace {
 
 class LimiterStage final : public IStage {
 public:
-    StageInfo info() const override {
-        return {"limiter", fmt_.sampleRate, fmt_.frameSamples, capBit(Cap::Limiter), 0};
-    }
+    StageInfo info() const override { return {"limiter", fmt_.sampleRate, fmt_.frameSamples, capBit(Cap::Limiter), 0}; }
 
     bool init(const PipelineFormat& fmt, const toml::table& cfg, std::string& error) override {
         fmt_ = fmt;

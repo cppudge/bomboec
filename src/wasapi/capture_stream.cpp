@@ -21,9 +21,9 @@ WAVEFORMATEXTENSIBLE makeFloatFormat(uint32_t rate, uint32_t channels) {
     f.Format.nAvgBytesPerSec = rate * f.Format.nBlockAlign;
     f.Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
     f.Samples.wValidBitsPerSample = 32;
-    f.dwChannelMask = channels == 1 ? SPEAKER_FRONT_CENTER
-                    : channels == 2 ? (SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT)
-                                    : 0;
+    f.dwChannelMask = channels == 1   ? SPEAKER_FRONT_CENTER
+                      : channels == 2 ? (SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT)
+                                      : 0;
     f.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
     return f;
 }
@@ -176,9 +176,7 @@ void CaptureStream::close() {
     stopEvent_.reset();
 }
 
-std::string CaptureStream::lastError() const {
-    return hasError_.load() ? threadError_ : std::string();
-}
+std::string CaptureStream::lastError() const { return hasError_.load() ? threadError_ : std::string(); }
 
 void CaptureStream::deliver(const BYTE* data, uint32_t frames, DWORD flags, uint64_t qpc) {
     const uint32_t out = options_.channels;

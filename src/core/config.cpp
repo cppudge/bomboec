@@ -24,8 +24,8 @@ bool parseConfig(std::string_view text, AppConfig& out, std::string& error) {
         cfg.format.micChannels = uint32_t((*fmt)["mic_channels"].value_or(int64_t(1)));
         cfg.format.referenceChannels = uint32_t((*fmt)["reference_channels"].value_or(int64_t(2)));
     }
-    if (cfg.format.sampleRate == 0 || cfg.format.frameSamples == 0 ||
-        cfg.format.micChannels == 0 || cfg.format.referenceChannels == 0) {
+    if (cfg.format.sampleRate == 0 || cfg.format.frameSamples == 0 || cfg.format.micChannels == 0 ||
+        cfg.format.referenceChannels == 0) {
         error = "config: format fields must be positive";
         return false;
     }

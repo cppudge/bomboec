@@ -54,9 +54,8 @@ int main(int argc, char** argv) {
     }
     {
         const EngineStatus s = engine.status();
-        std::printf("mic:      %s (raw %s)\nloopback: %s\noutput:   %s\nreference lead %.0f ms\n",
-                    s.micName.c_str(), s.micRaw ? "on" : "off", s.speakersName.c_str(), s.outputName.c_str(),
-                    s.referenceLeadMs);
+        std::printf("mic:      %s (raw %s)\nloopback: %s\noutput:   %s\nreference lead %.0f ms\n", s.micName.c_str(),
+                    s.micRaw ? "on" : "off", s.speakersName.c_str(), s.outputName.c_str(), s.referenceLeadMs);
     }
 
     const double seconds = args["seconds"].as<double>();
@@ -65,14 +64,14 @@ int main(int argc, char** argv) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         const EngineStatus s = engine.status();
         const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-        std::printf("%6.1f s  mic %6.1f  ref %6.1f  out %6.1f dBFS  delay %s  erle %s  refmiss %llu  gaps %llu/%llu  out %u ms (margin %u) under %llu over %llu  fill +%llu/-%llu  drift %+.0f/%+.0f\n",
-                    t, s.micDb, s.refDb, s.outDb,
-                    s.stats.delayMs ? std::to_string(int(*s.stats.delayMs)).c_str() : "n/a",
-                    s.stats.erleDb ? std::to_string(int(*s.stats.erleDb)).c_str() : "n/a",
-                    (unsigned long long)s.refMissing, (unsigned long long)s.micGaps, (unsigned long long)s.refGaps,
-                    s.outBufferedMs, s.outMarginMs, (unsigned long long)s.outUnderruns, (unsigned long long)s.outOverruns,
-                    (unsigned long long)s.outInserted, (unsigned long long)s.outDropped,
-                    s.micDriftPpm, s.refDriftPpm);
+        std::printf(
+            "%6.1f s  mic %6.1f  ref %6.1f  out %6.1f dBFS  delay %s  erle %s  refmiss %llu  gaps %llu/%llu  out %u ms "
+            "(margin %u) under %llu over %llu  fill +%llu/-%llu  drift %+.0f/%+.0f\n",
+            t, s.micDb, s.refDb, s.outDb, s.stats.delayMs ? std::to_string(int(*s.stats.delayMs)).c_str() : "n/a",
+            s.stats.erleDb ? std::to_string(int(*s.stats.erleDb)).c_str() : "n/a", (unsigned long long)s.refMissing,
+            (unsigned long long)s.micGaps, (unsigned long long)s.refGaps, s.outBufferedMs, s.outMarginMs,
+            (unsigned long long)s.outUnderruns, (unsigned long long)s.outOverruns, (unsigned long long)s.outInserted,
+            (unsigned long long)s.outDropped, s.micDriftPpm, s.refDriftPpm);
         std::fflush(stdout);
         if (!s.error.empty()) {
             std::fprintf(stderr, "engine error: %s\n", s.error.c_str());

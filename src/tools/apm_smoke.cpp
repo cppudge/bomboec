@@ -109,12 +109,11 @@ int main() {
     const double attenuationDb = 10.0 * std::log10(inEnergy / (outEnergy + 1e-12));
 
     std::printf("webrtc-audio-processing smoke test\n");
-    std::printf("  rate=%d frame=%d render_ch=%d echo_delay_ms=%d\n",
-                kRate, kFrame, kRenderChannels, kEchoDelaySamples * 1000 / kRate);
+    std::printf("  rate=%d frame=%d render_ch=%d echo_delay_ms=%d\n", kRate, kFrame, kRenderChannels,
+                kEchoDelaySamples * 1000 / kRate);
     std::printf("  echo attenuation (last 1 s): %.1f dB\n", attenuationDb);
-    std::printf("  stats: delay_ms=%.0f erl=%.1f erle=%.1f residual_echo_likelihood=%.2f\n",
-                opt(st.delay_ms), opt(st.echo_return_loss),
-                opt(st.echo_return_loss_enhancement), opt(st.residual_echo_likelihood));
+    std::printf("  stats: delay_ms=%.0f erl=%.1f erle=%.1f residual_echo_likelihood=%.2f\n", opt(st.delay_ms),
+                opt(st.echo_return_loss), opt(st.echo_return_loss_enhancement), opt(st.residual_echo_likelihood));
 
     return attenuationDb > 15.0 ? 0 : 4;
 }

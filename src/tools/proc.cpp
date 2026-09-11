@@ -131,8 +131,8 @@ int main(int argc, char** argv) {
     const double refThresholdDb = args["ref-threshold-db"].as<double>();
     const bool quiet = args.count("quiet") > 0;
 
-    std::printf("mic %zu frames, ref %zu frames, chain of %zu stages, caps 0x%X, ref offset %+.1f ms\n",
-                micFrames, refFrames, chain->size(), chain->caps(), offsetMs);
+    std::printf("mic %zu frames, ref %zu frames, chain of %zu stages, caps 0x%X, ref offset %+.1f ms\n", micFrames,
+                refFrames, chain->size(), chain->caps(), offsetMs);
 
     Frame mic(fmt.micChannels, fmt.frameSamples);
     Frame ref(fmt.referenceChannels, fmt.frameSamples);
@@ -156,9 +156,8 @@ int main(int argc, char** argv) {
         for (uint32_t c = 0; c < fmt.referenceChannels; ++c) {
             for (uint32_t i = 0; i < fmt.frameSamples; ++i) {
                 const int64_t idx = refStart + i;
-                ref.channel(c)[i] = (idx >= 0 && size_t(idx) < refFrames)
-                                        ? refData[size_t(idx) * fmt.referenceChannels + c]
-                                        : 0.0f;
+                ref.channel(c)[i] =
+                    (idx >= 0 && size_t(idx) < refFrames) ? refData[size_t(idx) * fmt.referenceChannels + c] : 0.0f;
             }
         }
 
@@ -208,11 +207,12 @@ int main(int argc, char** argv) {
                 secFrames = 0;
                 continue;
             }
-            std::printf("%6.1f s  mic %6.1f  ref %6.1f  out %6.1f dBFS  att %5.1f dB  delay %s ms  erl %s  erle %s  res %s\n",
-                        t, dbfs(std::sqrt(secIn / secFrames)), dbfs(std::sqrt(secRef / secFrames)),
-                        dbfs(std::sqrt(secOut / secFrames)), 10.0 * std::log10(secIn / std::max(secOut, 1e-18)),
-                        fmtOpt(st.delayMs, "%3.0f").c_str(), fmtOpt(st.erlDb, "%5.1f").c_str(),
-                        fmtOpt(st.erleDb, "%5.1f").c_str(), fmtOpt(st.residualEchoLikelihood, "%4.2f").c_str());
+            std::printf(
+                "%6.1f s  mic %6.1f  ref %6.1f  out %6.1f dBFS  att %5.1f dB  delay %s ms  erl %s  erle %s  res %s\n",
+                t, dbfs(std::sqrt(secIn / secFrames)), dbfs(std::sqrt(secRef / secFrames)),
+                dbfs(std::sqrt(secOut / secFrames)), 10.0 * std::log10(secIn / std::max(secOut, 1e-18)),
+                fmtOpt(st.delayMs, "%3.0f").c_str(), fmtOpt(st.erlDb, "%5.1f").c_str(),
+                fmtOpt(st.erleDb, "%5.1f").c_str(), fmtOpt(st.residualEchoLikelihood, "%4.2f").c_str());
             secIn = secRef = secOut = 0.0;
             secFrames = 0;
         }
