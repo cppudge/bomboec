@@ -15,7 +15,7 @@
   обычным WASAPI render. Свой драйвер только при необходимости.
 - Зависимости: Conan 2, локальный индекс рецептов для библиотек, которых нет в Conan Center.
 
-Подробное исследование и обоснование: `windows-aec-application-design.md`.
+Подробное исследование и обоснование: `docs/windows-aec-application-design.md`.
 Примечание: NVIDIA Maxine AEC из того документа снят с поддержки в AFX SDK 3.0 и в план не входит.
 
 ## Окружение
@@ -84,7 +84,8 @@ build.ps1                     окружение MSVC + cmake --workflow
 cmake/cmake-conan/            cmake-conan provider (conan install из CMake)
 scripts/                      vcvars.ps1 (окружение MSVC), check.ps1 (clang-tidy + clang-format)
 conan-recipes/recipes/        локальные рецепты (webrtc-audio-processing, позже speexdsp, rnnoise)
-config/default.toml           конфигурация конвейера по умолчанию
+config/default.toml           конфигурация по умолчанию (встраивается в bomboec.exe как шаблон)
+docs/                         исследование и обоснование архитектуры
 src/core/                     Frame, RingBuffer, Timeline, PacketAssembler, WAV, IStage, Chain, StageRegistry, config
 src/stages/                   hpf, webrtc (AEC3 + hpf/ns/agc из APM), limiter; позже speex_aec, rnnoise, ...
 src/wasapi/                   devices, CaptureStream (mic/loopback), RenderStream (keepalive, позже cable)
@@ -171,7 +172,8 @@ public:
 
 ## Realtime-движок и tray-приложение
 
-`bomboec.exe` живёт в трее, конфиг `bomboec.toml` рядом с exe создаётся из встроенного шаблона.
+`bomboec.exe` живёт в трее, конфиг `bomboec.toml` рядом с exe создаётся при первом запуске из
+`config/default.toml`, встроенного в exe при сборке.
 Меню: старт/стоп, выбор микрофона, колонок (reference) и выхода, окно статуса (уровни,
 delay/ERL/ERLE, пропуски reference, буфер выхода, дрейф), открыть конфиг, перечитать конфиг.
 Выбор устройства сохраняется в конфиг и перезапускает движок. При падении потока (устройство

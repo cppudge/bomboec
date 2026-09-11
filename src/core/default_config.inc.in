@@ -1,0 +1,2 @@
+// Сгенерировано CMake из config/default.toml (src/core/CMakeLists.txt), не редактировать.
+R"bomboec_toml(@BOMBOEC_DEFAULT_CONFIG_TEXT@)bomboec_toml"

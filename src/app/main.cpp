@@ -1,6 +1,6 @@
 // bomboec: tray-приложение вокруг Engine.
 //
-// Конфиг: bomboec.toml рядом с exe (создаётся из встроенного шаблона).
+// Конфиг: bomboec.toml рядом с exe (создаётся из config/default.toml, встроенного при сборке).
 // Лог: bomboec.log рядом с exe. Один экземпляр: повторный запуск показывает
 // окно статуса уже работающего.
 // Меню в трее: старт/стоп, выбор микрофона, колонок (reference) и выхода,
@@ -8,6 +8,7 @@
 // (id и имя) и перезапускает движок. Если id устройства больше нет
 // (переустановка драйвера кабеля), устройство ищется по имени.
 
+#include "core/config.h"
 #include "engine/engine.h"
 #include "wasapi/com_util.h"
 #include "wasapi/devices.h"
@@ -36,46 +37,6 @@ constexpr UINT ID_TOGGLE = 100, ID_STATUS = 101, ID_CONFIG = 102, ID_RELOAD = 10
 constexpr UINT ID_MIC_BASE = 1000, ID_SPK_BASE = 2000, ID_OUT_BASE = 3000;
 const wchar_t* kTrayClass = L"BomboecTray";
 const wchar_t* kMutexName = L"Local\\bomboec.tray.single";
-
-const char* kDefaultConfig = R"(# bomboec configuration
-
-[format]
-sample_rate = 48000
-frame_ms = 10
-mic_channels = 1
-reference_channels = 2
-
-[devices]
-mic = ""        # endpoint id; пусто = default capture
-speakers = ""   # render endpoint для loopback; пусто = default render
-output = ""     # render endpoint для очищенного сигнала (virtual cable)
-mic_name = ""
-speakers_name = ""
-output_name = ""
-
-[engine]
-mic_raw = true
-reference_lead_ms = 20
-output_buffer_ms = 10   # запас в выходном кольце (джиттер микрофона)
-output_render_ms = 20   # заполнение буфера WASAPI выхода, не меньше 2 периодов
-output_channels = 2
-record_dir = ""
-
-[[chain]]
-id = "webrtc"
-aec = true
-hpf = true
-ns = false
-ns_level = "moderate"
-agc = false
-filter_length_blocks = 13
-delay_num_filters = 5
-
-[[chain]]
-id = "limiter"
-ceiling_db = -1.0
-release_ms = 50.0
-)";
 
 struct App {
     HWND hwnd = nullptr;
@@ -130,7 +91,7 @@ void updateTooltip(App& app) {
 bool loadOrCreateConfig(App& app, std::string& error) {
     if (!std::filesystem::exists(app.configPath)) {
         std::ofstream out(app.configPath, std::ios::binary);
-        out << kDefaultConfig;
+        out << defaultConfigToml();
         logLine(app, "config created: " + app.configPath.string());
     }
     return loadConfig(app.configPath, app.cfg, error);

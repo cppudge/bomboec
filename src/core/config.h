@@ -59,4 +59,7 @@ bool loadConfig(const std::filesystem::path& path, AppConfig& out, std::string& 
 // Записывает cfg.raw с актуальными [devices]/[engine] из cfg.engine.
 bool saveConfig(const std::filesystem::path& path, const AppConfig& cfg, std::string& error);
 
+// Шаблон конфигурации по умолчанию: config/default.toml, встроенный при сборке.
+std::string_view defaultConfigToml();
+
 }  // namespace bomboec

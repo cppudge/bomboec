@@ -122,4 +122,12 @@ bool loadConfig(const std::filesystem::path& path, AppConfig& out, std::string& 
     return parseConfig(ss.str(), out, error);
 }
 
+std::string_view defaultConfigToml() {
+    // default_config.inc генерирует src/core/CMakeLists.txt из config/default.toml.
+    static constexpr std::string_view kText =
+#include "default_config.inc"
+        ;
+    return kText;
+}
+
 }  // namespace bomboec

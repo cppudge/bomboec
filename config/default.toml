@@ -1,10 +1,27 @@
-# Конфигурация конвейера bomboec по умолчанию.
+# Конфигурация bomboec. Шаблон по умолчанию: config/default.toml в исходниках, bomboec.exe
+# создаёт из него bomboec.toml рядом с exe при первом запуске.
 
 [format]
 sample_rate = 48000
 frame_ms = 10
 mic_channels = 1
 reference_channels = 2
+
+[devices]
+mic = ""        # endpoint id; пусто = default capture
+speakers = ""   # render endpoint для loopback; пусто = default render
+output = ""     # render endpoint для очищенного сигнала (virtual cable)
+mic_name = ""
+speakers_name = ""
+output_name = ""
+
+[engine]
+mic_raw = true
+reference_lead_ms = 20
+output_buffer_ms = 10   # запас в выходном кольце (джиттер микрофона)
+output_render_ms = 20   # заполнение буфера WASAPI выхода, не меньше 2 периодов
+output_channels = 2
+record_dir = ""
 
 # Цепочка стадий выполняется по порядку. Каждая возможность (hpf, aec, ns, agc,
 # limiter) может быть объявлена только одной стадией.

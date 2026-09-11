@@ -47,3 +47,22 @@ TEST_CASE("Config defaults and errors") {
     CHECK_FALSE(parseConfig("[format]\nsample_rate = 0\n", cfg, error));
     CHECK_FALSE(parseConfig("this is = not = toml", cfg, error));
 }
+
+TEST_CASE("Embedded default config parses and repeats the code defaults") {
+    AppConfig cfg;
+    std::string error;
+    REQUIRE(parseConfig(defaultConfigToml(), cfg, error));
+    CHECK(cfg.format.frameSamples == 480);
+    REQUIRE(cfg.chain.size() == 2);
+    CHECK(cfg.chain[0].id == "webrtc");
+    CHECK(cfg.chain[1].id == "limiter");
+    // Шаблон не должен менять поведение относительно пустого конфига.
+    const EngineSettings defaults;
+    CHECK(cfg.engine.micId.empty());
+    CHECK(cfg.engine.outputId.empty());
+    CHECK(cfg.engine.micRaw == defaults.micRaw);
+    CHECK(cfg.engine.referenceLeadMs == defaults.referenceLeadMs);
+    CHECK(cfg.engine.outputBufferMs == defaults.outputBufferMs);
+    CHECK(cfg.engine.outputRenderMs == defaults.outputRenderMs);
+    CHECK(cfg.engine.outputChannels == defaults.outputChannels);
+}

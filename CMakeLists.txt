@@ -26,7 +26,7 @@ if(NOT DEFINED SKIP_CONAN_PROVIDER_CMAKE)
     set(CMAKE_PROJECT_TOP_LEVEL_INCLUDES "${CMAKE_SOURCE_DIR}/cmake/cmake-conan/conan_provider.cmake")
 endif()
 
-project(bomboec LANGUAGES CXX)
+project(bomboec VERSION 0.1.0 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -43,8 +43,10 @@ option(BOMBOEC_WERROR "Treat compiler warnings as errors" ON)
 add_library(bomboec_options INTERFACE)
 add_library(bomboec::options ALIAS bomboec_options)
 if(MSVC)
+    # Только для C++: rc.exe (ресурсы приложения) этих ключей не понимает.
     target_compile_options(bomboec_options INTERFACE
-        /W4 /permissive- /utf-8 /Zc:__cplusplus $<$<BOOL:${BOMBOEC_WERROR}>:/WX>)
+        "$<$<COMPILE_LANGUAGE:CXX>:/W4;/permissive-;/utf-8;/Zc:__cplusplus>"
+        "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<BOOL:${BOMBOEC_WERROR}>>:/WX>")
     target_compile_definitions(bomboec_options INTERFACE NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE)
 endif()
 
