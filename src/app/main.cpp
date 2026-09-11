@@ -4,9 +4,10 @@
 // Лог: bomboec.log рядом с exe. Один экземпляр: повторный запуск показывает
 // окно статуса уже работающего.
 // Меню в трее: старт/стоп, выбор микрофона, колонок (reference) и выхода,
-// окно статуса, открыть конфиг, выход. Выбор устройства сохраняется в конфиг
-// (id и имя) и перезапускает движок. Если id устройства больше нет
-// (переустановка драйвера кабеля), устройство ищется по имени.
+// окно статуса, открыть конфиг, выход. Выбор устройства сохраняется в
+// bomboec.state.toml (id и имя; конфиг приложение не переписывает) и
+// перезапускает движок. Если id устройства больше нет (переустановка драйвера
+// кабеля), устройство ищется по имени.
 //
 // Окно приложения скрытое top-level, а не message-only: только такое получает
 // TaskbarCreated (иконка возвращается после перезапуска explorer.exe) и находится
@@ -55,7 +56,7 @@ struct App {
     bool trayAdded = false;
     UINT taskbarCreatedMsg = 0;  // RegisterWindowMessage(L"TaskbarCreated")
     HFONT statusFont = nullptr;
-    std::filesystem::path configPath, logPath;
+    std::filesystem::path configPath, statePath, logPath;
     AppConfig cfg;
     Engine engine;
     Watchdog watchdog;
@@ -121,11 +122,20 @@ void addTrayIcon(App& app) {
 
 bool loadOrCreateConfig(App& app, std::string& error) {
     if (!std::filesystem::exists(app.configPath)) {
-        std::ofstream out(app.configPath, std::ios::binary);
-        out << defaultConfigToml();
+        if (!writeFileAtomic(app.configPath, defaultConfigToml(), error)) return false;
         logLine(app, "config created: " + pathToUtf8(app.configPath));
     }
-    return loadConfig(app.configPath, app.cfg, error);
+    if (!loadConfig(app.configPath, app.cfg, error)) return false;
+    // Устройства, выбранные в меню, поверх [devices] конфига.
+    std::string stateError;
+    if (!loadState(app.statePath, app.cfg.engine, stateError)) logLine(app, "state ignored: " + stateError);
+    for (const std::string& w : app.cfg.warnings) logLine(app, w);
+    if (!app.cfg.warnings.empty()) {
+        const size_t more = app.cfg.warnings.size() - 1;
+        notify(app, L"bomboec: config warnings",
+               app.cfg.warnings.front() + (more ? " (+" + std::to_string(more) + " in the log)" : ""), NIIF_WARNING);
+    }
+    return true;
 }
 
 // Если сохранённого id нет среди устройств, ищем по имени и обновляем id.
@@ -167,7 +177,7 @@ void resolveDevicesByName(App& app) {
             }
         }
     }
-    if (changed) saveConfig(app.configPath, app.cfg, error);
+    if (changed && !saveState(app.statePath, app.cfg.engine, error)) logLine(app, "state not saved: " + error);
 }
 
 void showStatusWindow(App& app);
@@ -202,6 +212,10 @@ void startEngine(App& app, bool interactive) {
                       s.micEventDriven ? "event" : "polling", s.speakersName.c_str(), s.refDeviceChannels,
                       s.refEventDriven ? "event" : "polling", s.outputName.c_str(), s.outRenderMs);
         logLine(app, line);
+        if (!s.warning.empty()) {
+            if (interactive) notify(app, L"bomboec: check the config", s.warning, NIIF_WARNING);
+            else logLine(app, "warning: " + s.warning);
+        }
     }
     updateTooltip(app);
 }
@@ -353,7 +367,7 @@ void selectDevice(App& app, std::string& id, std::string& name, const std::vecto
         name = ws::toUtf8(devices[index - 1].name);
     }
     std::string error;
-    if (!saveConfig(app.configPath, app.cfg, error)) notify(app, L"bomboec", error, NIIF_WARNING);
+    if (!saveState(app.statePath, app.cfg.engine, error)) notify(app, L"bomboec", error, NIIF_WARNING);
     logLine(app, "device selected: '" + name + "' (" + id + ")");
     restartIfRunning(app);
 }
@@ -463,6 +477,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
     App app;
     gApp = &app;
     app.configPath = exeDir() / "bomboec.toml";
+    app.statePath = exeDir() / "bomboec.state.toml";
     app.logPath = exeDir() / "bomboec.log";
     logLine(app, "start " BOMBOEC_VERSION_FULL);
 

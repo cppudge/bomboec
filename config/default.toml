@@ -7,13 +7,14 @@ frame_ms = 10
 mic_channels = 1
 reference_channels = 2
 
-[devices]
-mic = ""        # endpoint id; пусто = default capture
-speakers = ""   # render endpoint для loopback; пусто = default render
-output = ""     # render endpoint для очищенного сигнала (virtual cable)
-mic_name = ""
-speakers_name = ""
-output_name = ""
+# Устройства выбираются в меню трея и хранятся в bomboec.state.toml рядом с exe (этот
+# файл приложение не переписывает). Вручную их можно задать секцией [devices] здесь:
+#   [devices]
+#   mic = "{0.0.1.00000000}.{...}"   # endpoint id; пусто = устройство по умолчанию
+#   speakers = ""                    # render endpoint для loopback (reference)
+#   output = ""                      # render endpoint для очищенного сигнала (virtual cable)
+#   mic_name = ""                    # имена: запасной поиск, если id сменился
+# bomboec.state.toml, если он есть, перекрывает эту секцию целиком.
 
 [engine]
 mic_raw = true

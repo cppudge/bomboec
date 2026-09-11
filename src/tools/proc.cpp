@@ -89,6 +89,7 @@ int run(int argc, char** argv) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 2;
     }
+    for (const std::string& w : cfg.warnings) std::fprintf(stderr, "%s\n", w.c_str());
     const PipelineFormat& fmt = cfg.format;
 
     std::vector<float> micData, refData;

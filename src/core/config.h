@@ -36,28 +36,27 @@ struct AppConfig {
     PipelineFormat format;
     std::vector<StageConfig> chain;
     EngineSettings engine;
-    toml::table raw;  // исходный документ для сохранения с правками
+    // Конфиг читается, но что-то в нём, скорее всего, не так (опечатка в ключе).
+    std::vector<std::string> warnings;
 };
 
-// Формат файла:
-//
-//   [format]
-//   sample_rate = 48000
-//   frame_ms = 10
-//   reference_channels = 2
-//
-//   [[chain]]
-//   id = "webrtc"
-//   aec = true
-//
-//   [[chain]]
-//   id = "limiter"
-//   ceiling_db = -1.0
+// Формат файла: config/default.toml. Проверяются типы и диапазоны ключей [format],
+// [devices] и [engine]; ошибка значения - отказ с текстом в error. Неизвестные ключи
+// (опечатка не должна молча оставлять значение по умолчанию) идут в warnings. Ключи
+// стадий [[chain]] проверяют сами стадии в init().
 bool parseConfig(std::string_view text, AppConfig& out, std::string& error);
 bool loadConfig(const std::filesystem::path& path, AppConfig& out, std::string& error);
 
-// Записывает cfg.raw с актуальными [devices]/[engine] из cfg.engine.
-bool saveConfig(const std::filesystem::path& path, const AppConfig& cfg, std::string& error);
+// Состояние приложения (устройства, выбранные в меню трея) живёт в отдельном файле
+// (bomboec.state.toml): сохранение не трогает комментарии и правки пользователя в
+// конфиге. Если файл есть, его [devices] перекрывает [devices] конфига целиком.
+// loadState без файла возвращает true и ничего не меняет.
+bool loadState(const std::filesystem::path& path, EngineSettings& settings, std::string& error);
+bool saveState(const std::filesystem::path& path, const EngineSettings& settings, std::string& error);
+
+// Запись через временный файл рядом и замену: сбой посередине не оставляет пустой
+// или обрезанный файл (пустой конфиг читался бы как цепочка без AEC).
+bool writeFileAtomic(const std::filesystem::path& path, std::string_view text, std::string& error);
 
 // Шаблон конфигурации по умолчанию: config/default.toml, встроенный при сборке.
 std::string_view defaultConfigToml();

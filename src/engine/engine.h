@@ -15,7 +15,8 @@ namespace bomboec {
 // Состояние для окна статуса: счётчики конвейера плюс устройства и потоки.
 struct EngineStatus : PipelineStats {
     bool running = false;
-    std::string error;  // фатальная ошибка потоков, если была
+    std::string error;    // фатальная ошибка потоков, если была
+    std::string warning;  // движок работает, но конфиг, скорее всего, не тот (нет AEC в цепочке)
     std::string micName, speakersName, outputName;
     bool micRaw = false;
     bool micEventDriven = false, refEventDriven = false;    // иначе polling

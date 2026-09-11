@@ -47,6 +47,7 @@ int run(int argc, char** argv) {
         std::fprintf(stderr, "%s\n", error.c_str());
         return 1;
     }
+    for (const std::string& w : cfg.warnings) std::fprintf(stderr, "%s\n", w.c_str());
     if (args.contains("mic")) cfg.engine.micId = args["mic"].as<std::string>();
     if (args.contains("speakers")) cfg.engine.speakersId = args["speakers"].as<std::string>();
     if (args.contains("output")) cfg.engine.outputId = args["output"].as<std::string>();

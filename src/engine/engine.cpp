@@ -28,6 +28,7 @@ bool Engine::open(const AppConfig& cfg, std::string& error) {
     registerBuiltinStages(registry);
     std::unique_ptr<Chain> chain = buildChain(registry, cfg, error);
     if (!chain || !chain->init(fmt, error)) return false;
+    const bool cancelsEcho = hasCap(chain->caps(), Cap::Aec);
 
     namespace ws = wasapi;
     const ws::ComPtr<IMMDevice> micDev = ws::openDevice(ws::Flow::Capture, ws::fromUtf8(settings.micId), error);
@@ -59,6 +60,9 @@ bool Engine::open(const AppConfig& cfg, std::string& error) {
         info_.speakersName = ws::toUtf8(spkInfo.name);
         info_.outputName = ws::toUtf8(outInfo.name);
         info_.referenceLeadMs = settings.referenceLeadMs;
+        if (!cancelsEcho) {
+            info_.warning = "no stage in [[chain]] cancels echo (aec): the microphone goes out unprocessed";
+        }
     }
 
     if (!pipeline_.configure(fmt, settings, std::move(chain), error)) return false;
