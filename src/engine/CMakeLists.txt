@@ -1,4 +1,6 @@
 add_library(bomboec_engine STATIC
+    pipeline.h
+    pipeline.cpp
     engine.h
     engine.cpp
     watchdog.h

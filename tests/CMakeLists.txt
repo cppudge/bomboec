@@ -1,5 +1,6 @@
 add_executable(bomboec_tests
     fakes/fake_wasapi.h
+    sim/pipeline_sim.h
     test_frame.cpp
     test_ring_buffer.cpp
     test_timeline.cpp
@@ -13,6 +14,7 @@ add_executable(bomboec_tests
     test_utf8.cpp
     test_devices.cpp
     test_watchdog.cpp
+    test_pipeline.cpp
     "${BOMBOEC_MANIFEST}"
 )
 target_link_libraries(bomboec_tests PRIVATE
