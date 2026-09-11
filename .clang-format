@@ -1,7 +1,7 @@
 # Стиль C++ проекта. Эталон: clang-format 22 (LLVM 22.x из C:\Program Files\LLVM\bin или
 # `pip install clang-format==22.*`); другая мажорная версия может иначе решать граничные случаи.
 # Опции повторяют стиль, в котором код уже написан: 4 пробела, 120 колонок, короткие if/case
-# в одну строку, отступ у case.
+# и пустые блоки {} в одну строку, отступ у case.
 BasedOnStyle: LLVM
 IndentWidth: 4
 ColumnLimit: 120
@@ -12,6 +12,7 @@ DerivePointerAlignment: false
 SpacesBeforeTrailingComments: 2
 AllowShortIfStatementsOnASingleLine: AllIfsAndElse
 AllowShortLoopsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Empty
 AllowShortCaseLabelsOnASingleLine: true
 AllowShortLambdasOnASingleLine: All
 # Комментарии переносятся вручную: clang-format только выравнивает их отступ.

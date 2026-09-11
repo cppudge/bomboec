@@ -110,8 +110,7 @@ public:
 private:
     struct SpinGuard {
         explicit SpinGuard(std::atomic_flag& f) : f_(f) {
-            while (f_.test_and_set(std::memory_order_acquire)) {
-            }
+            while (f_.test_and_set(std::memory_order_acquire)) {}
         }
         ~SpinGuard() { f_.clear(std::memory_order_release); }
         std::atomic_flag& f_;
