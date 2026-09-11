@@ -26,7 +26,7 @@
 ## Сборка
 
 ```powershell
-./build/Release/src/tools/bomboec-rec.exe --out recordings/take1 --seconds 20 --mic "<id>" --speakers "<id>"
+./build.ps1            # Release; ./build.ps1 -Debug для Debug, -Clean для чистой сборки
 ```
 
 Скрипт делает то же, что и руками:
