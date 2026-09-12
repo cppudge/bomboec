@@ -30,6 +30,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -43,7 +44,7 @@ namespace {
 namespace fs = std::filesystem;
 
 struct Segment {
-    std::string type;  // echo | double_talk | speech | silence | noise
+    std::string type;  // echo | double_talk | speech | silence | noise | transients
     double from = 0.0, to = 0.0;
     std::optional<double> baseline;
 };
@@ -60,6 +61,8 @@ struct Thresholds {
     double speechMaxLossDb = 3.0;
     double quietMinReductionDb = 4.0;
     double burstMaxDb = 6.0;
+    double transientMinDb = 6.0;     // медиана подавления по событиям (стук, щелчок)
+    double transientEventDb = 15.0;  // событие: кадр 10 ms громче медианы сегмента на столько
     double regressionToleranceDb = 1.5;
     double guardSec = 0.3;  // края сегмента не в счёт (переходы, задержка выхода)
 };
@@ -104,6 +107,8 @@ bool loadCorpus(const fs::path& manifest, Corpus& out, std::string& error) {
         out.th.speechMaxLossDb = (*t)["speech_max_loss_db"].value_or(out.th.speechMaxLossDb);
         out.th.quietMinReductionDb = (*t)["quiet_min_reduction_db"].value_or(out.th.quietMinReductionDb);
         out.th.burstMaxDb = (*t)["burst_max_db"].value_or(out.th.burstMaxDb);
+        out.th.transientMinDb = (*t)["transient_min_db"].value_or(out.th.transientMinDb);
+        out.th.transientEventDb = (*t)["transient_event_db"].value_or(out.th.transientEventDb);
         out.th.regressionToleranceDb = (*t)["regression_tolerance_db"].value_or(out.th.regressionToleranceDb);
         out.th.guardSec = (*t)["guard_sec"].value_or(out.th.guardSec);
     }
@@ -200,9 +205,64 @@ double maxBurstDb(const std::vector<float>& mic, const std::vector<float>& out, 
     return worst;
 }
 
+// Импульсные помехи (стук по столу, щелчок): средний RMS сегмента размывает их тишиной между
+// ударами, поэтому метрика по событиям. Событие: кадры 10 ms, где микрофон громче медианы
+// сегмента (шумовой пол) на eventDb; соседние кадры (разрыв <= 2) - одно событие. Подавление
+// события: пик микрофона минус пик выхода (выход смотрится на кадр дальше: остаток лага).
+struct TransientStats {
+    size_t events = 0;
+    double floorDb = -120.0;
+    double medianAttenuationDb = 0.0;
+    double minAttenuationDb = 0.0;
+    double worstResidualDb = -120.0;  // самый громкий пик на выходе, dBFS
+};
+
+TransientStats transientStats(const std::vector<float>& mic, const std::vector<float>& out, size_t from, size_t to,
+                              size_t frame, double eventDb) {
+    TransientStats ts;
+    to = std::min({to, mic.size(), out.size()});
+    if (from + 2 * frame > to) return ts;
+    const size_t n = (to - from) / frame;
+    std::vector<double> em(n), eo(n);
+    for (size_t k = 0; k < n; ++k) {
+        em[k] = rmsDb(mic, from + k * frame, from + (k + 1) * frame);
+        eo[k] = rmsDb(out, from + k * frame, from + (k + 1) * frame);
+    }
+    std::vector<double> sorted = em;
+    std::sort(sorted.begin(), sorted.end());
+    ts.floorDb = sorted[n / 2];
+    const double gate = ts.floorDb + eventDb;
+    std::vector<double> attenuation;
+    for (size_t k = 0; k < n;) {
+        if (em[k] < gate) {
+            ++k;
+            continue;
+        }
+        size_t end = k;  // последний кадр события
+        for (size_t j = k + 1; j < n && j <= end + 3; ++j) {
+            if (em[j] >= gate) end = j;
+        }
+        double peakMic = -120.0, peakOut = -120.0;
+        for (size_t j = k; j <= std::min(end + 1, n - 1); ++j) {
+            if (j <= end) peakMic = std::max(peakMic, em[j]);
+            peakOut = std::max(peakOut, eo[j]);
+        }
+        attenuation.push_back(peakMic - peakOut);
+        ts.worstResidualDb = std::max(ts.worstResidualDb, peakOut);
+        k = end + 2;
+    }
+    ts.events = attenuation.size();
+    if (ts.events == 0) return ts;
+    std::sort(attenuation.begin(), attenuation.end());
+    ts.minAttenuationDb = attenuation.front();
+    ts.medianAttenuationDb = attenuation[attenuation.size() / 2];
+    return ts;
+}
+
 struct SegmentResult {
     Segment seg;
     double micDb = 0.0, outDb = 0.0, attenuationDb = 0.0, burstDb = 0.0;
+    std::optional<TransientStats> transients;  // только для сегментов transients
 };
 
 struct ScenarioResult {
@@ -270,6 +330,10 @@ bool runScenario(const Corpus& corpus, const Scenario& sc, ScenarioResult& r, st
         sr.outDb = rmsDb(out, from, to);
         sr.attenuationDb = sr.micDb - sr.outDb;
         sr.burstDb = maxBurstDb(mic, out, from, to);
+        if (seg.type == "transients") {
+            sr.transients = transientStats(mic, out, from, to, cfg.format.frameSamples, corpus.th.transientEventDb);
+            sr.attenuationDb = sr.transients->medianAttenuationDb;  // baseline и регрессия по медиане событий
+        }
         r.segments.push_back(sr);
     }
     const StageStats st = sim.pipeline.chainStats();
@@ -325,6 +389,12 @@ TEST_CASE("Corpus: recorded scenarios keep their echo, speech and noise metrics"
                 report << "  " << s.seg.type << " " << s.seg.from << "-" << s.seg.to << " s: mic " << s.micDb
                        << " -> out " << s.outDb << " dBFS, attenuation " << s.attenuationDb << " dB, burst "
                        << s.burstDb << " dB";
+                if (s.transients) {
+                    report << "; events " << s.transients->events << " over floor " << s.transients->floorDb
+                           << " dBFS, attenuation median " << s.transients->medianAttenuationDb << " / min "
+                           << s.transients->minAttenuationDb << " dB, worst residual " << s.transients->worstResidualDb
+                           << " dBFS";
+                }
                 if (s.seg.baseline) report << " (baseline " << *s.seg.baseline << ")";
                 report << "\n";
                 baseline << (k ? ", " : "") << std::round(s.attenuationDb * 10.0) / 10.0;
@@ -341,6 +411,10 @@ TEST_CASE("Corpus: recorded scenarios keep their echo, speech and noise metrics"
                 else if (s.seg.type == "double_talk") CHECK(s.attenuationDb >= th.doubleTalkMinDb);
                 else if (s.seg.type == "speech") CHECK(s.attenuationDb <= th.speechMaxLossDb);
                 else if (quiet) CHECK(s.attenuationDb >= th.quietMinReductionDb);
+                else if (s.transients.has_value()) {
+                    CHECK(s.transients->events >= 5);  // в записи должны быть удары
+                    CHECK(s.attenuationDb >= th.transientMinDb);
+                }
                 CHECK(s.burstDb <= th.burstMaxDb);
                 if (s.seg.baseline) {
                     // Речь: хуже = больше потеря; остальное: хуже = меньше подавление.

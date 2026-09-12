@@ -1,4 +1,4 @@
-# Запись корпуса эталонов для регрессии (tests/corpus/corpus.toml): пять сценариев подряд,
+# Запись корпуса эталонов для регрессии (tests/corpus/corpus.toml): шесть сценариев подряд,
 # каждый через bomboec-rec (микрофон raw + loopback колонок), музыка через bomboec-play.
 #   pwsh scripts/record-corpus.ps1                      # устройства из bomboec.toml / bomboec.state.toml
 #   pwsh scripts/record-corpus.ps1 -Mic "<id>" -Speakers "<id>" -Music song.wav -Only music,speech
@@ -55,7 +55,8 @@ $scenarios = @(
     @{ name = "noise";        seconds = 20; music = $false; text = "Бытовой шум без речи: печатайте, двигайте мышь, пусть шумит вентилятор." },
     @{ name = "music";        seconds = 30; music = $true;  text = "Музыка в колонках, вы молчите." },
     @{ name = "speech";       seconds = 30; music = $false; text = "Только речь: читайте любой текст вслух все 30 секунд." },
-    @{ name = "music-speech"; seconds = 30; music = $true;  text = "Музыка в колонках и вы читаете текст вслух все 30 секунд." }
+    @{ name = "music-speech"; seconds = 30; music = $true;  text = "Музыка в колонках и вы читаете текст вслух все 30 секунд." },
+    @{ name = "transients";   seconds = 20; music = $false; text = "Стуки без речи и музыки: стучите по столу, щёлкайте ручкой, ставьте кружку, задевайте стойку микрофона, с паузами 1-2 с (нужно не меньше 10 ударов)." }
 )
 foreach ($s in $scenarios) {
     if ($Only.Count -gt 0 -and $Only -notcontains $s.name) { continue }

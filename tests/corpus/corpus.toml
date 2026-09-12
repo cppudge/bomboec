@@ -10,6 +10,9 @@
 #   speech       только речь: потеря уровня <= speech_max_loss_db
 #   silence      никто не говорит, музыки нет: выход тише входа >= quiet_min_reduction_db
 #   noise        бытовой шум без музыки (клавиатура, вентилятор): как silence
+#   transients   стуки и щелчки без речи и музыки: медиана подавления по событиям (пик
+#                микрофона минус пик выхода на кадрах громче шумового пола на transient_event_db)
+#                >= transient_min_db; в отчёте число событий и самый громкий остаток на выходе
 # На каждом сегменте: всплески (RMS 100 ms) на выходе не выше входа + burst_max_db.
 # baseline: подавление по сегментам (dB, в том же порядке) с прошлого прогона; ухудшение
 # больше regression_tolerance_db - ошибка. Обновить: BOMBOEC_CORPUS_BASELINE=1 bomboec_tests "[corpus]".
@@ -23,6 +26,8 @@ double_talk_min_db = 2.0   # речь громче эха: общее подав
 speech_max_loss_db = 4.0   # NS давит паузы между словами: RMS речи падает на 2-3 dB и без потери голоса
 quiet_min_reduction_db = 4.0
 burst_max_db = 6.0
+transient_min_db = 6.0     # ожидание, не факт: стуки RNNoise давит слабо, см. отчёт теста
+transient_event_db = 15.0
 regression_tolerance_db = 1.5
 guard_sec = 0.3
 
@@ -68,3 +73,9 @@ name = "music-speech"
 dir = "corpus/music-speech"
 segments = [{ type = "double_talk", from = 1.0, to = 30.0 }]
 baseline = [2.4]
+
+# Стуки по столу, щелчки, кружка, стойка микрофона; без речи и музыки. Baseline после записи.
+[[scenario]]
+name = "transients"
+dir = "corpus/transients"
+segments = [{ type = "transients", from = 0.0, to = 20.0 }]
