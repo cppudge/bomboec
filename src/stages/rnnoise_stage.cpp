@@ -2,8 +2,13 @@
 // 22 полосам на кадр 10 ms при 48 kHz, лучше NS из WebRTC на нестационарных шумах
 // (клавиатура, щелчки). Алгоритмическая задержка один кадр (перекрытие окон анализа).
 //
-// Ключей конфига нет. Пробовалась смесь с сухим сигналом (mix): даже с выравниванием по
-// кадру она теряла 2 dB речи (сеть меняет фазу), и на корпусе выигрыша не дала.
+// Ключи конфига:
+//   input_gain_db = 0   усиление перед сетью с точным обратным делением после неё. Меняет только
+//                       рабочую точку сети (она обучена на шкале 16 бит и тихую речь портит
+//                       сильнее громкой), уровень сигнала на выходе стадии не меняется.
+//
+// Пробовалась смесь с сухим сигналом (mix): даже с выравниванием по кадру она теряла 2 dB речи
+// (сеть меняет фазу), и на корпусе выигрыша не дала.
 //
 // Заголовок rnnoise не выходит за пределы этого файла.
 
@@ -32,7 +37,12 @@ public:
 
     bool init(const PipelineFormat& fmt, StageParams& cfg, std::string& error) override {
         fmt_ = fmt;
-        (void)cfg;  // ключей нет: неизвестные Chain отметит сам
+        const double gainDb = cfg.number("input_gain_db", 0.0, -40.0, 40.0);
+        if (!cfg.ok()) {
+            error = "rnnoise: " + cfg.error();
+            return false;
+        }
+        gain_ = float(std::pow(10.0, gainDb / 20.0));
         const auto frame = uint32_t(rnnoise_get_frame_size());
         if (fmt.sampleRate != 48000 || fmt.frameSamples != frame) {
             error = "rnnoise: needs 48 kHz and a " + std::to_string(frame) + "-sample frame";
@@ -57,10 +67,11 @@ public:
         const uint32_t n = fmt_.frameSamples;
         for (uint32_t c = 0; c < mic.channels() && c < states_.size(); ++c) {
             float* x = mic.channel(c).data();
-            for (uint32_t i = 0; i < n; ++i) in_[i] = x[i] * kScale;
+            const float scale = kScale * gain_;
+            for (uint32_t i = 0; i < n; ++i) in_[i] = x[i] * scale;
             const float vad = rnnoise_process_frame(states_[c].get(), out_.data(), in_.data());
             if (c == 0) vad_ = vad;
-            for (uint32_t i = 0; i < n; ++i) x[i] = out_[i] / kScale;
+            for (uint32_t i = 0; i < n; ++i) x[i] = out_[i] / scale;
         }
     }
 
@@ -80,7 +91,8 @@ private:
     PipelineFormat fmt_;
     std::vector<std::unique_ptr<DenoiseState, StateDeleter>> states_;
     std::vector<float> in_, out_;
-    float vad_ = 0.0f;  // вероятность речи в последнем кадре (канал 0)
+    float gain_ = 1.0f;  // усиление перед сетью (после неё делится обратно)
+    float vad_ = 0.0f;   // вероятность речи в последнем кадре (канал 0)
 };
 
 }  // namespace

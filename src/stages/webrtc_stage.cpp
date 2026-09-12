@@ -8,6 +8,24 @@
 //   filter_length_blocks = 13     длина адаптивного фильтра AEC3 (блоки по 4 ms), 1..60
 //   delay_num_filters = 5         число фильтров оценки задержки (диапазон поиска), 1..20
 //
+// Настройка подавителя AEC3 (все значения по умолчанию равны штатным в EchoCanceller3Config,
+// то есть без этих ключей поведение прежнее). Подавитель считает усиление по маскировочным
+// порогам: enr (echo-to-nearend) ниже enr_transparent - усиление 1, выше enr_suppress - полное
+// подавление; чем больше пороги, тем больше остаётся голоса и эха. Наборов два: normal_* и
+// nearend_* (последний действует, когда детектор считает, что говорит человек, а не колонки).
+//   nearend_mask_lf_transparent = 1.09, nearend_mask_lf_suppress = 1.1
+//   nearend_mask_hf_transparent = 0.1,  nearend_mask_hf_suppress = 0.3
+//   normal_mask_lf_transparent = 0.3,   normal_mask_lf_suppress = 0.4
+//   normal_mask_hf_transparent = 0.07,  normal_mask_hf_suppress = 0.1
+//   suppressor_max_dec_factor_lf = 0.25  как быстро падает усиление НЧ за блок (больше = плавнее)
+// Детектор "говорит человек" (dominant nearend): срабатывает, когда эхо/голос ниже
+// enr_threshold и snr выше snr_threshold, держится hold_duration блоков, требует
+// trigger_threshold подряд.
+//   nearend_enr_threshold = 0.25, nearend_snr_threshold = 30
+//   nearend_hold_duration = 50,   nearend_trigger_threshold = 12
+//   high_bands_max_gain_during_echo = 1.0   потолок усиления выше 8 kHz во время эха
+//   conservative_hf_suppression = false
+//
 // Заголовки WebRTC не выходят за пределы этого файла.
 
 #include "stages/builtin_stages.h"
@@ -23,6 +41,57 @@
 
 namespace bomboec {
 namespace {
+
+// Значения подавителя AEC3 из конфига; по умолчанию совпадают с EchoCanceller3Config.
+struct SuppressorTuning {
+    double nearendLfTransparent = 1.09, nearendLfSuppress = 1.1;
+    double nearendHfTransparent = 0.1, nearendHfSuppress = 0.3;
+    double normalLfTransparent = 0.3, normalLfSuppress = 0.4;
+    double normalHfTransparent = 0.07, normalHfSuppress = 0.1;
+    double maxDecFactorLf = 0.25;
+    double nearendEnrThreshold = 0.25, nearendSnrThreshold = 30.0;
+    int64_t nearendHoldDuration = 50, nearendTriggerThreshold = 12;
+    double highBandsMaxGain = 1.0;
+    bool conservativeHf = false;
+};
+
+void readSuppressorTuning(StageParams& cfg, SuppressorTuning& t) {
+    t.nearendLfTransparent = cfg.number("nearend_mask_lf_transparent", t.nearendLfTransparent, 0.0, 100.0);
+    t.nearendLfSuppress = cfg.number("nearend_mask_lf_suppress", t.nearendLfSuppress, 0.0, 100.0);
+    t.nearendHfTransparent = cfg.number("nearend_mask_hf_transparent", t.nearendHfTransparent, 0.0, 100.0);
+    t.nearendHfSuppress = cfg.number("nearend_mask_hf_suppress", t.nearendHfSuppress, 0.0, 100.0);
+    t.normalLfTransparent = cfg.number("normal_mask_lf_transparent", t.normalLfTransparent, 0.0, 100.0);
+    t.normalLfSuppress = cfg.number("normal_mask_lf_suppress", t.normalLfSuppress, 0.0, 100.0);
+    t.normalHfTransparent = cfg.number("normal_mask_hf_transparent", t.normalHfTransparent, 0.0, 100.0);
+    t.normalHfSuppress = cfg.number("normal_mask_hf_suppress", t.normalHfSuppress, 0.0, 100.0);
+    t.maxDecFactorLf = cfg.number("suppressor_max_dec_factor_lf", t.maxDecFactorLf, 0.0, 100.0);
+    t.nearendEnrThreshold = cfg.number("nearend_enr_threshold", t.nearendEnrThreshold, 0.0, 1000.0);
+    t.nearendSnrThreshold = cfg.number("nearend_snr_threshold", t.nearendSnrThreshold, 0.0, 1000.0);
+    t.nearendHoldDuration = cfg.integer("nearend_hold_duration", t.nearendHoldDuration, 0, 10000);
+    t.nearendTriggerThreshold = cfg.integer("nearend_trigger_threshold", t.nearendTriggerThreshold, 0, 10000);
+    t.highBandsMaxGain = cfg.number("high_bands_max_gain_during_echo", t.highBandsMaxGain, 0.0, 1.0);
+    t.conservativeHf = cfg.boolean("conservative_hf_suppression", t.conservativeHf);
+}
+
+void applySuppressorTuning(const SuppressorTuning& t, webrtc::EchoCanceller3Config& aec3) {
+    auto& s = aec3.suppressor;
+    s.nearend_tuning.mask_lf.enr_transparent = float(t.nearendLfTransparent);
+    s.nearend_tuning.mask_lf.enr_suppress = float(t.nearendLfSuppress);
+    s.nearend_tuning.mask_hf.enr_transparent = float(t.nearendHfTransparent);
+    s.nearend_tuning.mask_hf.enr_suppress = float(t.nearendHfSuppress);
+    s.normal_tuning.mask_lf.enr_transparent = float(t.normalLfTransparent);
+    s.normal_tuning.mask_lf.enr_suppress = float(t.normalLfSuppress);
+    s.normal_tuning.mask_hf.enr_transparent = float(t.normalHfTransparent);
+    s.normal_tuning.mask_hf.enr_suppress = float(t.normalHfSuppress);
+    s.nearend_tuning.max_dec_factor_lf = float(t.maxDecFactorLf);
+    s.normal_tuning.max_dec_factor_lf = float(t.maxDecFactorLf);
+    s.dominant_nearend_detection.enr_threshold = float(t.nearendEnrThreshold);
+    s.dominant_nearend_detection.snr_threshold = float(t.nearendSnrThreshold);
+    s.dominant_nearend_detection.hold_duration = int(t.nearendHoldDuration);
+    s.dominant_nearend_detection.trigger_threshold = int(t.nearendTriggerThreshold);
+    s.high_bands_suppression.max_gain_during_echo = float(t.highBandsMaxGain);
+    s.conservative_hf_suppression = t.conservativeHf;
+}
 
 class WebrtcStage final : public IStage {
 public:
@@ -43,6 +112,7 @@ public:
         s.filterBlocks = cfg.integer("filter_length_blocks", 13, 1, 60);
         s.delayFilters = cfg.integer("delay_num_filters", 5, 1, 20);
         s.nsLevel = cfg.choice("ns_level", "moderate", {"low", "moderate", "high", "very_high"});
+        readSuppressorTuning(cfg, s.tuning);
         if (!cfg.ok()) {
             error = "webrtc: " + cfg.error();
             return false;
@@ -88,6 +158,7 @@ private:
         bool aec = true, hpf = false, ns = false, agc = false;
         int64_t filterBlocks = 13, delayFilters = 5;
         std::string nsLevel = "moderate";
+        SuppressorTuning tuning;
     };
 
     bool apply(const Settings& s, std::string& error) {
@@ -119,8 +190,9 @@ private:
             aec3.filter.coarse_initial.length_blocks =
                 std::min(aec3.filter.coarse_initial.length_blocks, size_t(filterBlocks));
             aec3.delay.num_filters = size_t(delayFilters);
+            applySuppressorTuning(s.tuning, aec3);
             if (!webrtc::EchoCanceller3Config::Validate(&aec3)) {
-                error = "webrtc: EchoCanceller3Config rejected (filter_length_blocks/delay_num_filters)";
+                error = "webrtc: EchoCanceller3Config rejected (filter_length_blocks/delay_num_filters/suppressor)";
                 return false;
             }
             builder.SetEchoControlFactory(std::make_unique<webrtc::EchoCanceller3Factory>(aec3));

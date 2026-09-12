@@ -159,6 +159,117 @@ TEST_CASE("Transient stage gates a sharp click, holds through the ring-down and 
     CHECK(rms(mic.channel(0)) == Catch::Approx(0.3 / std::sqrt(2.0)).epsilon(0.02));
 }
 
+TEST_CASE("Transient stage with the harmonicity check passes a voiced attack and still gates a click") {
+    const PipelineFormat fmt;
+    const uint32_t n = fmt.frameSamples;
+    std::mt19937 rng(11);
+    std::normal_distribution<float> noise(0.0f, 1.0f);
+
+    auto make = [&](double harmonicity) {
+        auto stage = makeTransientStage();
+        toml::table cfg;
+        cfg.insert("harmonicity_max", harmonicity);
+        cfg.insert("lookahead_ms", 4.0);
+        std::string error;
+        StageParams params(cfg);
+        REQUIRE(stage->init(fmt, params, error));
+        return stage;
+    };
+
+    // Громкий согласный внутри голоса: тон 150 Hz на -11 dBFS с провалом 2 ms до -43 dBFS.
+    // Выход из провала - та же скорость атаки, что у удара, но окно вокруг него гармонично:
+    // на корпусе речи гейт срабатывал именно на таких местах.
+    auto voiced = [&](IStage& stage) {
+        uint32_t k = 0;
+        uint64_t before = 0;
+        for (int f = 0; f < 20; ++f) {
+            Frame mic(1, n);
+            for (uint32_t i = 0; i < n; ++i, ++k) {
+                const bool dip = k >= 10 * n && k < 10 * n + 96;
+                mic.channel(0)[i] =
+                    float((dip ? 0.01 : 0.4) * std::sin(2.0 * std::numbers::pi * 150.0 * double(k) / fmt.sampleRate));
+            }
+            stage.process(mic, nullptr);
+            if (f == 8) before = stage.stats().transients;  // старт тона из тишины не в счёт
+        }
+        return stage.stats().transients - before;
+    };
+    CHECK(voiced(*make(1.0)) > 0);  // без проверки гейт срабатывает на голосе
+    CHECK(voiced(*make(0.4)) == 0);
+
+    // Щелчок: шумовой всплеск -10 dBFS с затуханием 3 ms - гейт срабатывает и с проверкой.
+    auto stage = make(0.4);
+    uint64_t clicks = 0;
+    double loudest = 0.0;
+    for (int f = 0; f < 10; ++f) {
+        Frame mic(1, n);
+        for (uint32_t i = 0; i < n; ++i) {
+            const float t = (f == 5 && i >= 200) ? float(i - 200) / 48.0f : -1.0f;
+            mic.channel(0)[i] = 0.001f * noise(rng) + (t >= 0.0f ? 0.3f * std::exp(-t / 3.0f) * noise(rng) : 0.0f);
+        }
+        stage->process(mic, nullptr);
+        clicks = stage->stats().transients;
+        if (f >= 5) loudest = std::max(loudest, rms(mic.channel(0)));
+    }
+    CHECK(clicks == 1);
+    CHECK(20.0 * std::log10(loudest / 0.001) < 25.0);  // без гейта всплеск был бы около 40 dB
+}
+
+TEST_CASE("Transient stage keys are checked") {
+    const PipelineFormat fmt;
+    auto stage = makeTransientStage();
+    toml::table cfg;
+    cfg.insert("harmonicity_max", 1.5);  // вне 0..1
+    std::string error;
+    StageParams params(cfg);
+    CHECK_FALSE(stage->init(fmt, params, error));
+}
+
+TEST_CASE("RNNoise input_gain_db changes the operating point but not the output level") {
+    const PipelineFormat fmt;
+    auto level = [&](double gainDb) {
+        auto stage = makeRnnoiseStage();
+        toml::table cfg;
+        cfg.insert("input_gain_db", gainDb);
+        std::string error;
+        StageParams params(cfg);
+        REQUIRE(stage->init(fmt, params, error));
+        return toneResponse(*stage, fmt, 500.0);
+    };
+    const double plain = level(0.0);
+    const double loud = level(6.0);
+    REQUIRE(plain > 0.0);
+    // Без обратного деления после сети выход был бы на 6 dB громче.
+    CHECK(std::fabs(20.0 * std::log10(loud / plain)) < 2.0);
+
+    auto stage = makeRnnoiseStage();
+    toml::table bad;
+    bad.insert("input_gain_db", 100.0);
+    std::string error;
+    StageParams params(bad);
+    CHECK_FALSE(stage->init(fmt, params, error));
+}
+
+TEST_CASE("WebRTC stage takes the AEC3 suppressor keys and rejects out-of-range ones") {
+    const PipelineFormat fmt;
+    auto stage = makeWebrtcStage();
+    toml::table cfg;
+    cfg.insert("nearend_mask_lf_transparent", 5.0);
+    cfg.insert("nearend_mask_lf_suppress", 5.1);
+    cfg.insert("nearend_enr_threshold", 0.35);
+    cfg.insert("nearend_trigger_threshold", 3);
+    cfg.insert("nearend_hold_duration", 100);
+    std::string error;
+    StageParams params(cfg);
+    REQUIRE(stage->init(fmt, params, error));
+    CHECK(params.unknownKeys().empty());
+
+    toml::table bad;
+    bad.insert("nearend_enr_threshold", -1.0);
+    StageParams badParams(bad);
+    CHECK_FALSE(stage->init(fmt, badParams, error));
+}
+
 TEST_CASE("WebRTC stage cancels a delayed synthetic echo") {
     const PipelineFormat fmt;
     auto stage = makeWebrtcStage();
