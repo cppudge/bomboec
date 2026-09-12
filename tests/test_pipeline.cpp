@@ -93,6 +93,21 @@ TEST_CASE("Pipeline trims the output backlog of a microphone burst within second
     CHECK(*std::max_element(latency.begin(), latency.end()) <= 45.0);
 }
 
+TEST_CASE("Pipeline's soft trim leaves at least one render block in the ring", "[pipeline]") {
+    PipelineSim sim;
+    sim.outBlockFrames = 960;  // render читает по 20 ms при запасе 10 ms
+    sim.stallFrom = 5.0;
+    sim.stallTo = 5.2;
+    REQUIRE(sim.start());
+    sim.run(7.0);
+    const uint64_t underrunsBefore = sim.pipeline.stats().outUnderruns;
+    sim.run(4.0);
+    const PipelineStats s = sim.pipeline.stats();
+    CHECK(s.outTrimmed > 0);
+    // Обрезка излишка не опустошает кольцо ниже одного блока render (frames + target).
+    CHECK(s.outUnderruns == underrunsBefore);
+}
+
 TEST_CASE("Pipeline recovers from a bogus microphone timestamp without a latency jump", "[pipeline]") {
     PipelineSim sim;
     sim.tweakMic = [](uint64_t packet, int64_t& ticks, PacketFlags&) {

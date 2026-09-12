@@ -123,12 +123,20 @@ App* gApp = nullptr;
 void logLine(App& app, const std::string& text) {
     std::error_code ec;
     const uintmax_t size = std::filesystem::file_size(app.logPath, ec);
+    std::ios::openmode mode = std::ios::app;
     if (!ec && size > kLogRotateBytes) {
         std::filesystem::path old = app.logPath;
         old += ".1";
         std::filesystem::rename(app.logPath, old, ec);  // заменяет прежний .1
+        if (ec) {
+            // .1 кем-то открыт без разрешения на замену: убрать его и повторить; если и это
+            // не вышло, лог начинается заново, но не растёт без предела.
+            std::filesystem::remove(old, ec);
+            std::filesystem::rename(app.logPath, old, ec);
+            if (ec) mode = std::ios::trunc;
+        }
     }
-    std::ofstream out(app.logPath, std::ios::app | std::ios::binary);
+    std::ofstream out(app.logPath, mode | std::ios::binary);
     if (!out) return;
     const std::time_t t = std::time(nullptr);
     std::tm tm{};

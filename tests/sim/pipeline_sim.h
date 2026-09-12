@@ -70,6 +70,9 @@ struct PipelineSim {
     double refDeliveryMs = -8.0;
     // Пакеты микрофона, которые должны были прийти в [stallFrom, stallTo), приходят разом в stallTo.
     double stallFrom = -1.0, stallTo = -1.0;
+    // Блок, которым render-поток читает выход (0 = кадр). У WASAPI выхода он больше запаса
+    // outputBufferMs: обрезка излишка не должна опустошать кольцо ниже одного блока.
+    uint32_t outBlockFrames = 0;
     // Пакеты reference в [refLostFrom, refLostTo) не приходят вовсе (loopback остановился:
     // устройство пропало, потом вернулось).
     double refLostFrom = -1.0, refLostTo = -1.0;
@@ -107,7 +110,7 @@ struct PipelineSim {
         for (;;) {
             const double tRef = ref.timeOf(double(refPos_ + packet)) + refDeliveryMs / 1000.0;
             const double tMic = micDelivery(mic.timeOf(double(micPos_ + packet)) + micDeliveryMs / 1000.0);
-            const double tOut = out.timeOf(double(outPos_ + packet));
+            const double tOut = out.timeOf(double(outPos_ + outBlock()));
             const double t = std::min({tRef, tMic, tOut});
             if (t > end) break;
             now = t;
@@ -154,8 +157,10 @@ private:
         micPos_ += n;
     }
 
+    uint32_t outBlock() const { return outBlockFrames ? outBlockFrames : fmt.frameSamples; }
+
     void pullOut() {
-        const uint32_t n = fmt.frameSamples, ch = settings.outputChannels;
+        const uint32_t n = outBlock(), ch = settings.outputChannels;
         outBuf_.resize(size_t(n) * ch);
         pipeline.fillOutput(outBuf_.data(), n);
         for (uint32_t i = 0; i < n; ++i) output.push_back(outBuf_[size_t(i) * ch]);

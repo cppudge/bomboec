@@ -45,6 +45,7 @@ void Recorder::close() {
 }
 
 void Recorder::push(size_t track, const float* interleaved, uint32_t frames) {
+    if (track >= slots_.size()) return;
     const uint32_t written = slots_[track]->ring.write(interleaved, frames);
     if (written < frames) dropped_.fetch_add(frames - written, std::memory_order_relaxed);
 }

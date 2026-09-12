@@ -244,7 +244,8 @@ void Pipeline::fillOutput(float* interleaved, uint32_t frames) {
     const uint32_t avail = outRing_.readable();
     uint32_t excess = 0;
     if (fill_.fullWindow() && fill_.marginFrames() > target + softExcessFrames_) {
-        excess = fill_.marginFrames() - target;
+        // Не ниже frames + target: иначе следующее же чтение даст underrun.
+        excess = std::min(fill_.marginFrames() - target, avail > frames + target ? avail - frames - target : 0);
     }
     const uint32_t hardLimit = frames + target + fmt_.sampleRate * kHardExcessMs / 1000;
     if (avail > hardLimit) excess = std::max(excess, avail - frames - target);

@@ -32,6 +32,7 @@ TEST_CASE("Recorder writes tracks pushed from another thread", "[recorder]") {
             }
             rec.push(0, mono.data(), kFrames);
             rec.push(1, stereo.data(), kFrames);
+            rec.push(2, mono.data(), kFrames);  // несуществующая дорожка: молча игнорируется
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     });

@@ -40,7 +40,11 @@ bool activeSessionProcesses(IMMDevice* device, uint32_t excludePid, std::vector<
         return false;
     }
     int count = 0;
-    sessions->GetCount(&count);
+    hr = sessions->GetCount(&count);
+    if (FAILED(hr)) {
+        error = "GetCount: " + hresultToString(hr);
+        return false;
+    }
     for (int i = 0; i < count; ++i) {
         ComPtr<IAudioSessionControl> control;
         if (FAILED(sessions->GetSession(i, &control))) continue;

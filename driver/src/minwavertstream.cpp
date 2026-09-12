@@ -208,10 +208,6 @@ Return Value:
         return STATUS_INVALID_PARAMETER;
     }
     m_pMiniport->AddRef();
-    if (!NT_SUCCESS(ntStatus))
-    {
-        return ntStatus;
-    }
     m_ulPin = Pin_;
     m_bCapture = Capture_;
     m_ulDmaMovementRate = pWfEx->nAvgBytesPerSec;
