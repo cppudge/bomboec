@@ -14,6 +14,11 @@
 #                микрофона минус пик выхода на кадрах громче шумового пола на transient_event_db)
 #                >= transient_min_db; в отчёте число событий и самый громкий остаток на выходе
 # На каждом сегменте: всплески (RMS 100 ms) на выходе не выше входа + burst_max_db.
+# Смеси [[mix]]: чистая речь (speech) плюс шум (noise, noise_gain_db) и/или эхо (echo: mic.wav
+# и ref.wav сценария с музыкой); выход сравнивается с чистой речью на её кадрах: спектральное
+# расстояние в 24 полосах <= mix_speech_lsd_max_db, доля кадров, просевших > 6 dB против
+# медианы, <= mix_dip_max; на кадрах без речи подавление >= mix_noise_min_db. baseline =
+# [lsd, dips, noise]. Так ловится порча голоса, которую RMS речи не показывает.
 # baseline: подавление по сегментам (dB, в том же порядке) с прошлого прогона; ухудшение
 # больше regression_tolerance_db - ошибка. Обновить: BOMBOEC_CORPUS_BASELINE=1 bomboec_tests "[corpus]".
 
@@ -26,8 +31,11 @@ double_talk_min_db = 2.0   # речь громче эха: общее подав
 speech_max_loss_db = 4.0   # NS давит паузы между словами: RMS речи падает на 2-3 dB и без потери голоса
 quiet_min_reduction_db = 4.0
 burst_max_db = 6.0
-transient_min_db = 15.0    # без стадии transient RNNoise давал 9.4 dB
+transient_min_db = 6.0     # шаблон без стадии transient: 9.4 dB; с ней 31.4
 transient_event_db = 15.0
+mix_speech_lsd_max_db = 25.0  # эхо на уровне речи даёт 19.8: AEC3 давит голос в double-talk
+mix_dip_max = 0.4
+mix_noise_min_db = 6.0
 regression_tolerance_db = 1.5
 guard_sec = 0.3
 
@@ -54,7 +62,7 @@ baseline = [39.3]
 name = "noise"
 dir = "corpus/noise"
 segments = [{ type = "noise", from = 0.0, to = 20.0 }]
-baseline = [22.7]   # 18.3 до гейта ударов
+baseline = [18.3]   # 22.7 со стадией transient
 
 [[scenario]]
 name = "music"
@@ -72,7 +80,7 @@ baseline = [1.6]
 name = "music-speech"
 dir = "corpus/music-speech"
 segments = [{ type = "double_talk", from = 1.0, to = 30.0 }]
-baseline = [2.6]
+baseline = [2.4]
 
 # Стуки по столу, щелчки, кружка, стойка микрофона; без речи и музыки. Baseline после записи.
 [[scenario]]
@@ -80,4 +88,37 @@ name = "transients"
 dir = "corpus/transients"
 segments = [{ type = "transients", from = 0.0, to = 20.0 }]
 # 2026-09-12: без гейта 9.4 (худший удар 0.8 dB, остаток до -10.6 dBFS); с transient 31.4 (худший 20.2, остаток -29).
-baseline = [31.4]
+baseline = [9.4]
+
+# Смеси из тех же записей (2026-09-12, шаблон AEC3 + rnnoise). Сама цепочка на чистой речи: lsd 6.8,
+# провалы 10.6 % (тихие согласные); помеха добавляет к этому 2-3 dB lsd, эхо на уровне речи 15 dB.
+[[mix]]
+name = "speech-alone"
+speech = "corpus/speech"
+baseline = [6.8, 0.106, 13.4]
+
+[[mix]]
+name = "speech+keyboard"
+speech = "corpus/speech"
+noise = "corpus/noise"
+baseline = [8.0, 0.117, 21.8]
+
+[[mix]]
+name = "speech+knocks"
+speech = "corpus/speech"
+noise = "corpus/transients"
+baseline = [8.9, 0.12, 21.0]
+
+[[mix]]
+name = "speech+music-echo"
+speech = "corpus/speech"
+echo = "corpus/music"
+baseline = [19.8, 0.349, 37.2]
+
+# Колонки тише: эхо на 10 dB ниже речи, ближе к разговору при умеренной громкости.
+[[mix]]
+name = "speech+music-echo-10"
+speech = "corpus/speech"
+echo = "corpus/music"
+echo_gain_db = -10.0
+baseline = [9.1, 0.118, 35.0]
