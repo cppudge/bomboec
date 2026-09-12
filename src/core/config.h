@@ -33,6 +33,10 @@ struct EngineSettings {
     uint32_t outputRenderMs = 20;  // целевое заполнение буфера WASAPI выхода (>= 2 периодов engine)
     uint32_t outputChannels = 2;
     std::string recordDir;  // непусто: debug-запись mic_raw/ref/out в WAV
+    // Физический микрофон занят, только пока какое-то приложение пишет с микрофона кабеля
+    // (другой конец выхода); без слушателей idleStopSec движок останавливается.
+    bool onDemand = true;
+    uint32_t idleStopSec = 5;
 };
 
 struct AppConfig {

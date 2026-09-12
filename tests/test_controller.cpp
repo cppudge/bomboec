@@ -1,7 +1,7 @@
 // Политика приложения (app/Controller) с поддельными движком и хостом: старт с backoff и
 // уведомлением только о первой неудаче, поиск устройств по имени после смены id, кабель как
 // выход по умолчанию, повтор reference, реакция на уведомления об устройствах, строка
-// статуса раз в минуту.
+// статуса раз в минуту, режим on_demand.
 
 #include "app/controller.h"
 
@@ -11,6 +11,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -65,6 +66,9 @@ struct FakeHost final : IHost {
     int statusShown = 0, stateChanges = 0;
     uint64_t now = 100'000;
     std::vector<ws::DeviceInfo> capture, render;
+    // Кто пишет с микрофона кабеля; по умолчанию слушатель есть, движок не уходит в idle.
+    std::optional<std::vector<std::string>> sessions = std::vector<std::string>{"Discord.exe"};
+    std::string lastListenersQuery;
 
     void log(const std::string& line) override { logs.push_back(line); }
     void notify(const std::string& title, const std::string& text, Level) override {
@@ -73,6 +77,10 @@ struct FakeHost final : IHost {
     void showStatus() override { ++statusShown; }
     std::vector<ws::DeviceInfo> devices(ws::Flow flow) override { return flow == ws::Flow::Capture ? capture : render; }
     uint64_t nowMs() override { return now; }
+    std::optional<std::vector<std::string>> listeners(const std::string& captureId) override {
+        lastListenersQuery = captureId;
+        return sessions;
+    }
     void engineStateChanged() override { ++stateChanges; }
 
     bool logged(const std::string& part) const {
@@ -280,4 +288,92 @@ TEST_CASE("Controller logs a status line once a minute and selects devices throu
     CHECK_FALSE(f.ctl.wantRunning());
     f.ctl.tick();  // остановлен пользователем: watchdog не перезапускает
     CHECK_FALSE(f.engine.running());
+}
+
+TEST_CASE("Controller releases the microphone when nobody records from the cable and takes it back on demand",
+          "[controller]") {
+    Fixture f;
+    std::string error;
+    REQUIRE(f.ctl.loadOrCreateConfig(error));
+    REQUIRE(f.ctl.config().engine.onDemand);
+    f.ctl.start(true);
+    CHECK(f.host.logged("on demand: listeners of 'Microphone (bomboec Cable)'"));
+    f.second();
+    CHECK(f.host.lastListenersQuery == "{cable-mic}");
+    CHECK(f.host.logged("listeners of 'Microphone (bomboec Cable)': Discord.exe"));
+    REQUIRE(f.ctl.listeners().size() == 1);
+
+    // Слушатель ушёл: через idle_stop_sec (5) без слушателей движок стоит, микрофон свободен.
+    f.host.sessions = std::vector<std::string>{};
+    for (int i = 0; i < 4; ++i) f.second();
+    CHECK(f.engine.running());
+    CHECK(f.host.logged("gone, releasing the microphone in 5 s"));
+    f.second();
+    CHECK_FALSE(f.engine.running());
+    CHECK(f.ctl.idle());
+    CHECK(f.ctl.wantRunning());
+    CHECK(f.host.logged("idle: nobody records from 'Microphone (bomboec Cable)', microphone released"));
+    CHECK(f.ctl.listeners().empty());
+
+    // В idle watchdog не перезапускает, уведомления об устройствах не трогают.
+    const int starts = f.engine.starts;
+    for (int i = 0; i < 40; ++i) f.second();
+    f.ctl.onDevicesChanged(false);
+    CHECK(f.engine.starts == starts);
+    CHECK_FALSE(f.host.logged("retrying start"));
+
+    // Слушатель появился: старт в тот же тик.
+    f.host.sessions = std::vector<std::string>{"obs64.exe"};
+    f.second();
+    CHECK(f.engine.running());
+    CHECK_FALSE(f.ctl.idle());
+    CHECK(f.engine.starts == starts + 1);
+    CHECK(f.host.logged("listeners of 'Microphone (bomboec Cable)': obs64.exe"));
+
+    // Стоп из меню в idle: движок больше не нужен, слушатель его не поднимает.
+    f.host.sessions = std::vector<std::string>{};
+    for (int i = 0; i < 6; ++i) f.second();
+    REQUIRE(f.ctl.idle());
+    f.ctl.toggle();
+    CHECK_FALSE(f.ctl.wantRunning());
+    CHECK_FALSE(f.ctl.idle());
+    f.host.sessions = std::vector<std::string>{"Discord.exe"};
+    f.second();
+    CHECK_FALSE(f.engine.running());
+    f.ctl.toggle();
+    CHECK(f.engine.running());
+}
+
+TEST_CASE("Controller keeps the microphone open without on_demand, without a cable, or without session info",
+          "[controller]") {
+    Fixture f;
+    std::string error;
+
+    SECTION("on_demand = false") {
+        std::ofstream(f.dir / "bomboec.toml") << "[engine]\non_demand = false\n";
+        REQUIRE(f.ctl.loadOrCreateConfig(error));
+        f.ctl.start(true);
+        CHECK(f.host.logged("on demand: off"));
+        f.host.sessions = std::vector<std::string>{};
+        for (int i = 0; i < 10; ++i) f.second();
+        CHECK(f.engine.running());
+        CHECK(f.host.lastListenersQuery.empty());
+    }
+    SECTION("the output is a physical device") {
+        std::ofstream(f.dir / "bomboec.toml") << "[devices]\noutput = \"{sb}\"\n";
+        REQUIRE(f.ctl.loadOrCreateConfig(error));
+        f.ctl.start(true);
+        CHECK(f.host.logged("on demand: off (the output is not a virtual cable)"));
+        f.host.sessions = std::vector<std::string>{};
+        for (int i = 0; i < 10; ++i) f.second();
+        CHECK(f.engine.running());
+    }
+    SECTION("sessions cannot be enumerated") {
+        REQUIRE(f.ctl.loadOrCreateConfig(error));
+        f.ctl.start(true);
+        f.host.sessions = std::nullopt;
+        for (int i = 0; i < 10; ++i) f.second();
+        CHECK(f.engine.running());
+        CHECK(f.host.logged("sessions of 'Microphone (bomboec Cable)' unavailable"));
+    }
 }

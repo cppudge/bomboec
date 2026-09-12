@@ -17,3 +17,7 @@ target_link_libraries(bomboec-run PRIVATE bomboec::options bomboec::engine bombo
 # Тестовый сигнал в render endpoint (проверка кабеля, калибровка).
 add_executable(bomboec-play play.cpp console.h "${BOMBOEC_MANIFEST}")
 target_link_libraries(bomboec-play PRIVATE bomboec::options bomboec::core bomboec::wasapi cxxopts::cxxopts)
+
+# Кто держит аудиопотоки открытыми: проверка режима on_demand и помощник install.ps1.
+add_executable(bomboec-sessions sessions.cpp console.h "${BOMBOEC_MANIFEST}")
+target_link_libraries(bomboec-sessions PRIVATE bomboec::options bomboec::wasapi cxxopts::cxxopts)

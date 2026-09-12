@@ -36,13 +36,17 @@ public:
     virtual void showStatus() = 0;
     virtual std::vector<wasapi::DeviceInfo> devices(wasapi::Flow flow) = 0;
     virtual uint64_t nowMs() = 0;
+    // Процессы с активной сессией записи на capture endpoint'е (кроме своего);
+    // nullopt = узнать нельзя.
+    virtual std::optional<std::vector<std::string>> listeners(const std::string& captureId) = 0;
     // Движок запустился или остановился (подсказка иконки).
     virtual void engineStateChanged() = 0;
 };
 
 // Политика приложения без Win32: конфиг и файл состояния, старт и остановка движка,
 // поиск устройств по имени, watchdog с backoff, повторное открытие reference,
-// реакция на уведомления об устройствах, строка статуса в лог раз в минуту.
+// реакция на уведомления об устройствах, строка статуса в лог раз в минуту, режим on_demand
+// (микрофон занят только пока кто-то пишет с микрофона кабеля).
 // Трей и окна (main.cpp) только зовут методы и показывают status().
 class Controller {
 public:
@@ -77,6 +81,10 @@ public:
 
     const AppConfig& config() const { return cfg_; }
     bool wantRunning() const { return wantRunning_; }
+    // Движок остановлен режимом on_demand: с микрофона кабеля никто не пишет.
+    bool idle() const { return idle_; }
+    // Кто сейчас пишет с микрофона кабеля (для окна статуса).
+    const std::vector<std::string>& listeners() const { return listeners_; }
     const std::string& lastError() const { return lastError_; }
     EngineStatus status() const { return engine_.status(); }
 
@@ -88,6 +96,7 @@ private:
     // выбора - наш кабель, если установлен.
     void resolveDevicesByName();
     void retryReference(const EngineStatus& s, uint64_t now);
+    void updateDemand(uint64_t now);
 
     IEngine& engine_;
     IHost& host_;
@@ -100,6 +109,12 @@ private:
     uint64_t refRetryAtMs_ = 0;
     bool refWarned_ = false;
     uint32_t statusLogTicks_ = 0;
+    // on_demand: микрофон кабеля (другой конец выхода), пусто = режим неприменим.
+    std::string cableMicId_, cableMicName_;
+    std::vector<std::string> listeners_;
+    bool idle_ = false;
+    bool demandUnavailableLogged_ = false;
+    uint64_t lastListenerMs_ = 0;
 };
 
 }  // namespace bomboec::app

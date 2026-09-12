@@ -81,6 +81,8 @@ TEST_CASE("Embedded default config parses and repeats the code defaults") {
     CHECK(cfg.engine.outputBufferMs == defaults.outputBufferMs);
     CHECK(cfg.engine.outputRenderMs == defaults.outputRenderMs);
     CHECK(cfg.engine.outputChannels == defaults.outputChannels);
+    CHECK(cfg.engine.onDemand == defaults.onDemand);
+    CHECK(cfg.engine.idleStopSec == defaults.idleStopSec);
 }
 
 TEST_CASE("Config rejects out-of-range and mistyped values") {

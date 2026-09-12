@@ -11,6 +11,16 @@ namespace bomboec::app {
 
 namespace ws = wasapi;
 
+namespace {
+
+std::string join(const std::vector<std::string>& v) {
+    std::string out;
+    for (const std::string& s : v) out += (out.empty() ? "" : ", ") + s;
+    return out;
+}
+
+}  // namespace
+
 Controller::Controller(IEngine& engine, IHost& host, std::filesystem::path configPath, std::filesystem::path statePath)
     : engine_(engine), host_(host), configPath_(std::move(configPath)), statePath_(std::move(statePath)) {}
 
@@ -72,6 +82,20 @@ void Controller::resolveDevicesByName() {
     }
     std::string error;
     if (changed && !saveState(statePath_, cfg_.engine, error)) host_.log("state not saved: " + error);
+
+    // Микрофон кабеля для on_demand: capture endpoint того же программного устройства, что и выход.
+    cableMicId_.clear();
+    cableMicName_.clear();
+    const std::wstring outId = ws::fromUtf8(cfg_.engine.outputId);
+    for (const ws::DeviceInfo& out : renDevices) {
+        if (outId.empty() ? !out.isDefault : out.id != outId) continue;
+        for (const ws::DeviceInfo& cap : capDevices) {
+            if (ws::sameVirtualDevice(cap, out)) {
+                cableMicId_ = ws::toUtf8(cap.id);
+                cableMicName_ = ws::toUtf8(cap.name);
+            }
+        }
+    }
 }
 
 void Controller::start(bool interactive) {
@@ -93,6 +117,8 @@ void Controller::start(bool interactive) {
             host_.notify("bomboec: running again", "audio devices are back", IHost::Level::Info);
         watchdog_.onStarted(now);
         audioLogged_ = false;
+        idle_ = false;
+        lastListenerMs_ = now;
         lastError_.clear();
         refRetryAtMs_ = now + kRefRetryMs;
         refWarned_ = false;
@@ -101,10 +127,14 @@ void Controller::start(bool interactive) {
         char line[1024];
         std::snprintf(line, sizeof(line),
                       "engine started: mic '%s' (raw %s, %u ch, %s), speakers '%s' (loopback %u ch, %s), "
-                      "output '%s' (wasapi %u ms)",
+                      "output '%s' (wasapi %u ms), on demand: %s%s",
                       s.micName.c_str(), s.micRaw ? "on" : "off", s.micDeviceChannels,
                       s.micEventDriven ? "event" : "polling", s.referenceActive ? s.speakersName.c_str() : "none",
-                      s.refDeviceChannels, s.refEventDriven ? "event" : "polling", s.outputName.c_str(), s.outRenderMs);
+                      s.refDeviceChannels, s.refEventDriven ? "event" : "polling", s.outputName.c_str(), s.outRenderMs,
+                      !cfg_.engine.onDemand ? "off"
+                      : cableMicId_.empty() ? "off (the output is not a virtual cable)"
+                                            : "listeners of '",
+                      cfg_.engine.onDemand && !cableMicId_.empty() ? (cableMicName_ + "'").c_str() : "");
         host_.log(line);
         if (!s.warning.empty()) {
             if (interactive) host_.notify("bomboec: check the config", s.warning, IHost::Level::Warning);
@@ -125,12 +155,14 @@ void Controller::stop() {
 void Controller::restartIfRunning() {
     if (engine_.running()) stop();
     watchdog_.clear();
+    idle_ = false;
     if (wantRunning_) start(true);
 }
 
 void Controller::toggle() {
-    wantRunning_ = !engine_.running();
+    wantRunning_ = !(engine_.running() || idle_);
     watchdog_.clear();
+    idle_ = false;
     if (wantRunning_) start(true);
     else stop();
 }
@@ -192,6 +224,46 @@ void Controller::retryReference(const EngineStatus& s, uint64_t now) {
     }
 }
 
+// Режим on_demand: физический микрофон занят, только пока кто-то пишет с микрофона кабеля.
+// Слушатели есть -> движок должен работать (из idle стартует в этот же тик); их нет
+// idle_stop_sec подряд -> стоп и idle. Если сессии узнать нельзя, работаем как без режима.
+void Controller::updateDemand(uint64_t now) {
+    if (!cfg_.engine.onDemand || cableMicId_.empty()) {
+        idle_ = false;
+        return;
+    }
+    const std::optional<std::vector<std::string>> current = host_.listeners(cableMicId_);
+    if (!current) {
+        if (!demandUnavailableLogged_) {
+            demandUnavailableLogged_ = true;
+            host_.log("on demand: sessions of '" + cableMicName_ + "' unavailable, the microphone stays open");
+        }
+        idle_ = false;
+        return;
+    }
+    if (!current->empty()) {
+        lastListenerMs_ = now;
+        if (*current != listeners_) host_.log("listeners of '" + cableMicName_ + "': " + join(*current));
+        listeners_ = *current;
+        if (idle_) {
+            idle_ = false;
+            watchdog_.clear();
+        }
+        return;
+    }
+    if (!listeners_.empty()) {
+        listeners_.clear();
+        host_.log("listeners of '" + cableMicName_ + "' gone, releasing the microphone in " +
+                  std::to_string(cfg_.engine.idleStopSec) + " s");
+    }
+    if (!idle_ && now - lastListenerMs_ >= uint64_t(cfg_.engine.idleStopSec) * 1000) {
+        idle_ = true;
+        if (engine_.running()) stop();
+        host_.log("idle: nobody records from '" + cableMicName_ + "', microphone released");
+        host_.engineStateChanged();
+    }
+}
+
 std::string Controller::statusLine(const EngineStatus& s) {
     auto num = [](const std::optional<double>& v) {
         return v ? std::to_string(int(std::lround(*v))) : std::string("-");
@@ -216,6 +288,8 @@ std::string Controller::statusLine(const EngineStatus& s) {
 void Controller::tick() {
     if (!wantRunning_) return;
     const uint64_t now = host_.nowMs();
+    updateDemand(now);
+    if (idle_) return;
     const EngineStatus s = engine_.status();
     if (s.running && !audioLogged_ && s.framesProcessed > 0) {
         audioLogged_ = true;
@@ -249,7 +323,7 @@ void Controller::onDevicesChanged(bool defaultChanged) {
     const EngineStatus s = engine_.status();
     DeviceChangeFacts f;
     f.running = s.running;
-    f.wantRunning = wantRunning_;
+    f.wantRunning = wantRunning_ && !idle_;
     f.referenceActive = s.referenceActive;
     f.defaultChanged = defaultChanged;
     f.usesDefault = cfg_.engine.micId.empty() || cfg_.engine.outputId.empty() || cfg_.engine.speakersId.empty();

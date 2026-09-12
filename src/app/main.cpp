@@ -21,6 +21,7 @@
 #include "wasapi/com_util.h"
 #include "wasapi/device_notifier.h"
 #include "wasapi/devices.h"
+#include "wasapi/sessions.h"
 
 #include <windows.h>
 #include <shellapi.h>
@@ -85,6 +86,13 @@ public:
         return ws::enumerateDevices(flow, error);
     }
     uint64_t nowMs() override { return GetTickCount64(); }
+    std::optional<std::vector<std::string>> listeners(const std::string& captureId) override {
+        std::string error;
+        const ws::ComPtr<IMMDevice> dev = ws::openDevice(ws::Flow::Capture, ws::fromUtf8(captureId), error);
+        std::vector<std::string> names;
+        if (!dev || !ws::activeSessionProcesses(dev.Get(), GetCurrentProcessId(), names, error)) return std::nullopt;
+        return names;
+    }
     void engineStateChanged() override { updateTooltip(app_); }
 
 private:
@@ -143,7 +151,10 @@ void Win32Host::notify(const std::string& title, const std::string& text, Level 
 void updateTooltip(App& app) {
     NOTIFYICONDATAW n = app.nid;
     n.uFlags = NIF_TIP;
-    const std::wstring tip = app.engine.running() ? L"bomboec: running" : L"bomboec: stopped";
+    const std::wstring tip = app.engine.running() ? L"bomboec: running"
+                             : app.controller && app.controller->idle()
+                                 ? L"bomboec: idle, nobody uses the cable microphone"
+                                 : L"bomboec: stopped";
     wcsncpy_s(n.szTip, tip.c_str(), _TRUNCATE);
     Shell_NotifyIconW(NIM_MODIFY, &n);
 }
@@ -162,12 +173,16 @@ std::string statusText(App& app) {
     const EngineStatus s = app.controller->status();
     char buf[2048];
     if (!s.running) {
+        const std::string why = app.controller->idle()
+                                    ? "idle: no application records from the cable microphone, the physical microphone "
+                                      "is released until one does (on_demand in the config)"
+                                    : app.controller->lastError();
         std::snprintf(buf, sizeof(buf),
-                      "bomboec %s: stopped\r\n\r\n%s\r\n\r\n"
+                      "bomboec %s: %s\r\n\r\n%s\r\n\r\n"
                       "Правый клик по иконке в трее: выбор микрофона, колонок и выхода, старт.\r\n"
                       "Конфиг: %s\r\nЛог: %s",
-                      BOMBOEC_VERSION_FULL, app.controller->lastError().c_str(), pathToUtf8(app.configPath).c_str(),
-                      pathToUtf8(app.logPath).c_str());
+                      BOMBOEC_VERSION_FULL, app.controller->idle() ? "idle" : "stopped", why.c_str(),
+                      pathToUtf8(app.configPath).c_str(), pathToUtf8(app.logPath).c_str());
         return buf;
     }
     auto opt = [](const std::optional<double>& v, const char* unit) {
@@ -176,13 +191,18 @@ std::string statusText(App& app) {
         std::snprintf(b, sizeof(b), "%.1f %s", *v, unit);
         return std::string(b);
     };
+    std::string listeners;
+    for (const std::string& l : app.controller->listeners()) listeners += (listeners.empty() ? "" : ", ") + l;
+    if (listeners.empty()) {
+        listeners = app.controller->config().engine.onDemand ? "none" : "not tracked (on_demand = false)";
+    }
     const std::string reference = s.referenceActive
                                       ? s.speakersName + " (" + (s.refEventDriven ? "event" : "polling") + ")"
                                       : std::string("none: echo is not cancelled, retrying");
     std::snprintf(
         buf, sizeof(buf),
         "bomboec %s: running\r\nmic:       %s (raw %s, %s)\r\nreference: %s\r\noutput:    %s\r\n"
-        "threads:   mmcss %s\r\n\r\n"
+        "listeners: %s\r\nthreads:   mmcss %s\r\n\r\n"
         "levels     mic %6.1f   ref %6.1f   out %6.1f dBFS\r\n"
         "aec        delay %s   erl %s   erle %s   errors %llu   vad %s\r\n"
         "reference  lead %.0f ms   missing %llu   jumps %llu   gaps mic %llu / ref %llu   "
@@ -192,7 +212,7 @@ std::string statusText(App& app) {
         "drift      mic %+.0f ppm   ref %+.0f ppm\r\n"
         "frames     %llu\r\n%s%s",
         BOMBOEC_VERSION_FULL, s.micName.c_str(), s.micRaw ? "on" : "off", s.micEventDriven ? "event" : "polling",
-        reference.c_str(), s.outputName.c_str(), s.mmcss ? "on" : "off", s.micDb, s.refDb, s.outDb,
+        reference.c_str(), s.outputName.c_str(), listeners.c_str(), s.mmcss ? "on" : "off", s.micDb, s.refDb, s.outDb,
         opt(s.stats.delayMs, "ms").c_str(), opt(s.stats.erlDb, "dB").c_str(), opt(s.stats.erleDb, "dB").c_str(),
         (unsigned long long)s.stats.errors, opt(s.stats.vadProbability, "").c_str(), s.referenceLeadMs,
         (unsigned long long)s.refMissing, (unsigned long long)s.refJumps, (unsigned long long)s.micGaps,
@@ -268,8 +288,11 @@ void showMenu(App& app, int x, int y) {
     const EngineSettings& dev = app.controller->config().engine;
 
     HMENU menu = CreatePopupMenu();
-    AppendMenuW(menu, MF_STRING | (app.engine.running() ? MF_CHECKED : 0), ID_TOGGLE,
-                app.engine.running() ? L"Running (click to stop)" : L"Start");
+    const bool active = app.engine.running() || app.controller->idle();
+    AppendMenuW(menu, MF_STRING | (active ? MF_CHECKED : 0), ID_TOGGLE,
+                app.engine.running()     ? L"Running (click to stop)"
+                : app.controller->idle() ? L"Idle, waiting for a listener (click to stop)"
+                                         : L"Start");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     appendDeviceMenu(menu, L"Microphone", app.menuCapDevices, dev.micId, ID_MIC_BASE);
     appendDeviceMenu(menu, L"Speakers (reference)", app.menuRenDevices, dev.speakersId, ID_SPK_BASE);

@@ -186,17 +186,19 @@ bool parseConfig(std::string_view text, AppConfig& out, std::string& error) {
 
     if (dev && !readDevices(*dev, cfg.engine, &cfg.warnings, error)) return false;
     if (eng) {
-        checkKeys(
-            *eng, "engine",
-            {"mic_raw", "reference_lead_ms", "output_buffer_ms", "output_render_ms", "output_channels", "record_dir"},
-            cfg.warnings);
+        checkKeys(*eng, "engine",
+                  {"mic_raw", "reference_lead_ms", "output_buffer_ms", "output_render_ms", "output_channels",
+                   "record_dir", "on_demand", "idle_stop_sec"},
+                  cfg.warnings);
         EngineSettings& e = cfg.engine;
         if (!readBool(*eng, "engine", "mic_raw", e.micRaw, error) ||
             !readUint(*eng, "engine", "reference_lead_ms", 0, 500, e.referenceLeadMs, error) ||
             !readUint(*eng, "engine", "output_buffer_ms", 0, 500, e.outputBufferMs, error) ||
             !readUint(*eng, "engine", "output_render_ms", 0, 500, e.outputRenderMs, error) ||
             !readUint(*eng, "engine", "output_channels", 1, 8, e.outputChannels, error) ||
-            !readString(*eng, "engine", "record_dir", e.recordDir, error)) {
+            !readString(*eng, "engine", "record_dir", e.recordDir, error) ||
+            !readBool(*eng, "engine", "on_demand", e.onDemand, error) ||
+            !readUint(*eng, "engine", "idle_stop_sec", 1, 3600, e.idleStopSec, error)) {
             return false;
         }
     }
