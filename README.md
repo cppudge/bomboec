@@ -175,7 +175,7 @@ src/core/                     Frame, RingBuffer, Timeline, PacketAssembler, Fill
 src/stages/                   hpf, webrtc (AEC3 + hpf/ns/agc из APM), rnnoise, limiter
 src/wasapi/                   устройства, CaptureStream (mic/loopback), RenderStream (keepalive, выход)
 src/engine/                   Pipeline (DSP без устройств), Engine (Pipeline + WASAPI), Watchdog, Recorder
-src/app/                      bomboec.exe (трей), каталог данных, минидампы
+src/app/                      Controller (политика без Win32, тестируется), bomboec.exe (трей, окно статуса), каталог данных, минидампы
 src/tools/                    bomboec-rec, bomboec-proc, bomboec-run, bomboec-play, apm_smoke
 driver/                       драйвер кабеля bomboec_cable.sys
 tests/                        Catch2: модули, fakes/ (WASAPI), sim/ (симулятор конвейера), corpus/ (манифест эталонов)

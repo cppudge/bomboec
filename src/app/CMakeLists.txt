@@ -10,12 +10,20 @@ add_library(bomboec::app_paths ALIAS bomboec_app_paths)
 target_include_directories(bomboec_app_paths PUBLIC ${PROJECT_SOURCE_DIR}/src)
 target_link_libraries(bomboec_app_paths PRIVATE bomboec::options shell32 ole32)
 
+# Политика приложения без Win32 (конфиг, старт/стоп, watchdog, устройства): тестируется с
+# поддельными движком и хостом.
+add_library(bomboec_app_controller STATIC controller.h controller.cpp)
+add_library(bomboec::app_controller ALIAS bomboec_app_controller)
+target_include_directories(bomboec_app_controller PUBLIC ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(bomboec_app_controller PUBLIC bomboec::engine bomboec::wasapi PRIVATE bomboec::options)
+
 # Ресурс версии (свойства файла в проводнике): версия из project() в корневом CMakeLists.txt.
 configure_file(bomboec.rc.in "${CMAKE_CURRENT_BINARY_DIR}/bomboec.rc" @ONLY)
 
 add_executable(bomboec WIN32 main.cpp "${CMAKE_CURRENT_BINARY_DIR}/bomboec.rc" "${BOMBOEC_MANIFEST}")
 target_link_libraries(bomboec PRIVATE
-    bomboec::options bomboec::engine bomboec::wasapi bomboec::crash bomboec::app_paths shell32 user32 gdi32 ole32
+    bomboec::options bomboec::engine bomboec::wasapi bomboec::crash bomboec::app_paths bomboec::app_controller
+    shell32 user32 gdi32 ole32
 )
 
 # version.h (версия и git describe для лога, окна статуса и ресурса) обновляется на каждой сборке.

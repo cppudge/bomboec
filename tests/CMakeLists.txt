@@ -21,12 +21,13 @@ add_executable(bomboec_tests
     test_recorder.cpp
     test_crash_dump.cpp
     test_paths.cpp
+    test_controller.cpp
     test_corpus.cpp
     test_rnnoise.cpp
     "${BOMBOEC_MANIFEST}"
 )
 target_link_libraries(bomboec_tests PRIVATE
-    bomboec::options bomboec::core bomboec::stages bomboec::wasapi bomboec::engine bomboec::crash bomboec::app_paths
+    bomboec::options bomboec::core bomboec::stages bomboec::wasapi bomboec::engine bomboec::crash bomboec::app_paths bomboec::app_controller
     Catch2::Catch2WithMain
 )
 

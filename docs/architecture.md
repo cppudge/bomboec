@@ -29,7 +29,7 @@
 | `stages` | стадии hpf, webrtc, limiter; заголовки WebRTC не выходят за `webrtc_stage.cpp` | core, webrtc-audio-processing |
 | `wasapi` | устройства, CaptureStream, RenderStream; ядра не знает | Windows SDK |
 | `engine` | Pipeline (весь realtime без устройств), Engine (Pipeline + WASAPI), Watchdog, Recorder | core, wasapi, stages |
-| `app` | трей, лог, конфиг и файл состояния, перезапуски; `bomboec::crash` (минидампы) | engine |
+| `app` | `Controller` (конфиг и файл состояния, старт/стоп, watchdog, устройства по имени, повтор reference, реакция на уведомления, строка статуса в лог) за интерфейсами `IEngine`/`IHost`, проверяется с подделками; `main.cpp` только Win32: трей, меню, окно статуса, лог, таймеры; `paths` (каталог данных); `bomboec::crash` (минидампы) | engine |
 | `tools` | консольные утилиты | по потребности |
 
 `Pipeline` не знает об устройствах: его кормят пакетами с QPC-метками и забирают выход колбэком.

@@ -1,25 +1,22 @@
-// bomboec: tray-приложение вокруг Engine.
+// bomboec: tray-приложение вокруг Engine. Политика (конфиг, старт и остановка, watchdog,
+// устройства) живёт в app/Controller и проверяется тестами; здесь только Win32: скрытое
+// окно, иконка и меню трея, окно статуса, лог, уведомления, таймеры, уведомления системы
+// об устройствах.
 //
 // Каталог данных (app/paths.h): рядом с exe, если там есть bomboec.toml или маркер `portable`,
 // иначе %LOCALAPPDATA%\bomboec. В нём bomboec.toml (создаётся из config/default.toml,
 // встроенного при сборке), bomboec.state.toml, bomboec.log и минидампы. Один экземпляр:
 // повторный запуск показывает окно статуса уже работающего.
-// Меню в трее: старт/стоп, выбор микрофона, колонок (reference) и выхода,
-// окно статуса, открыть конфиг, выход. Выбор устройства сохраняется в
-// bomboec.state.toml (id и имя; конфиг приложение не переписывает) и
-// перезапускает движок. Если id устройства больше нет (переустановка драйвера
-// кабеля), устройство ищется по имени.
 //
 // Окно приложения скрытое top-level, а не message-only: только такое получает
 // TaskbarCreated (иконка возвращается после перезапуска explorer.exe) и находится
 // через FindWindow из второго экземпляра.
 
+#include "app/controller.h"
 #include "app/crash_dump.h"
 #include "app/paths.h"
-#include "core/config.h"
 #include "core/utf8.h"
 #include "engine/engine.h"
-#include "engine/watchdog.h"
 #include "version.h"
 #include "wasapi/com_util.h"
 #include "wasapi/device_notifier.h"
@@ -29,18 +26,19 @@
 #include <shellapi.h>
 #include <windowsx.h>
 
-#include <algorithm>
-#include <chrono>
-#include <cmath>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 using namespace bomboec;
 namespace ws = bomboec::wasapi;
+using bomboec::app::Controller;
+using bomboec::app::IHost;
 
 namespace {
 
@@ -52,11 +50,46 @@ constexpr UINT_PTR kWatchdogTimer = 2;
 constexpr UINT_PTR kDeviceTimer = 3;  // дебаунс уведомлений об устройствах
 constexpr UINT kDeviceDebounceMs = 500;
 constexpr uintmax_t kLogRotateBytes = 1 << 20;  // bomboec.log -> bomboec.log.1
-constexpr uint32_t kStatusLogEverySec = 60;     // строка статуса в лог: суточный прогон без окна
 constexpr UINT ID_TOGGLE = 100, ID_STATUS = 101, ID_CONFIG = 102, ID_RELOAD = 103, ID_EXIT = 104, ID_LOG = 105;
 constexpr UINT ID_MIC_BASE = 1000, ID_SPK_BASE = 2000, ID_OUT_BASE = 3000;
 const wchar_t* kTrayClass = L"BomboecTray";
 const wchar_t* kMutexName = L"Local\\bomboec.tray.single";
+
+// Engine за интерфейсом контроллера.
+class RealEngine final : public bomboec::app::IEngine {
+public:
+    bool start(const AppConfig& cfg, std::string& error) override { return engine_.start(cfg, error); }
+    void stop() override { engine_.stop(); }
+    bool running() const override { return engine_.running(); }
+    EngineStatus status() const override { return engine_.status(); }
+    bool reopenReference(std::string& error) override { return engine_.reopenReference(error); }
+
+private:
+    Engine engine_;
+};
+
+struct App;
+void showStatusWindow(App& app);
+void updateTooltip(App& app);
+void logLine(App& app, const std::string& text);
+
+// Лог, уведомления, устройства и часы для контроллера.
+class Win32Host final : public IHost {
+public:
+    explicit Win32Host(App& app) : app_(app) {}
+    void log(const std::string& line) override { logLine(app_, line); }
+    void notify(const std::string& title, const std::string& text, Level level) override;
+    void showStatus() override { showStatusWindow(app_); }
+    std::vector<ws::DeviceInfo> devices(ws::Flow flow) override {
+        std::string error;
+        return ws::enumerateDevices(flow, error);
+    }
+    uint64_t nowMs() override { return GetTickCount64(); }
+    void engineStateChanged() override { updateTooltip(app_); }
+
+private:
+    App& app_;
+};
 
 struct App {
     HWND hwnd = nullptr;
@@ -66,25 +99,16 @@ struct App {
     bool trayAdded = false;
     UINT taskbarCreatedMsg = 0;  // RegisterWindowMessage(L"TaskbarCreated")
     HFONT statusFont = nullptr;
-    std::filesystem::path configPath, statePath, logPath;
-    AppConfig cfg;
-    Engine engine;
-    Watchdog watchdog;
+    std::filesystem::path configPath, logPath;
+    RealEngine engine;
+    Win32Host host{*this};
+    std::unique_ptr<Controller> controller;
     ws::DeviceNotifier notifier;
     bool defaultChangedPending = false;  // среди собранных уведомлений была смена default
-    bool audioLogged = false;            // после старта в лог уже записано, что звук пошёл
-    // Списки устройств для открытого меню: пункты меню индексируют именно их. Watchdog
-    // за время, пока меню открыто, может перечислить устройства заново, поэтому у него
-    // свои списки (resolveDevicesByName).
+    // Списки устройств для открытого меню: пункты меню индексируют именно их. Контроллер
+    // за время, пока меню открыто, может перечислить устройства заново, поэтому у него свои.
     std::vector<ws::DeviceInfo> menuCapDevices, menuRenDevices;
-    std::string lastError;
-    bool wantRunning = true;
-    uint64_t refRetryAtMs = 0;    // когда снова пробовать открыть reference (loopback колонок)
-    bool refWarned = false;       // об отсутствии reference уже сообщили
-    uint32_t statusLogTicks = 0;  // секунд с последней строки статуса в логе
 };
-
-constexpr uint64_t kRefRetryMs = 5000;
 
 App* gApp = nullptr;
 
@@ -106,12 +130,12 @@ void logLine(App& app, const std::string& text) {
     out << stamp << "  " << text << "\n";
 }
 
-void notify(App& app, const wchar_t* title, const std::string& text, DWORD flags = NIIF_INFO) {
-    logLine(app, ws::toUtf8(title) + ": " + text);
-    NOTIFYICONDATAW n = app.nid;
+void Win32Host::notify(const std::string& title, const std::string& text, Level level) {
+    logLine(app_, title + ": " + text);
+    NOTIFYICONDATAW n = app_.nid;
     n.uFlags = NIF_INFO;
-    n.dwInfoFlags = flags;
-    wcsncpy_s(n.szInfoTitle, title, _TRUNCATE);
+    n.dwInfoFlags = level == Level::Error ? NIIF_ERROR : level == Level::Warning ? NIIF_WARNING : NIIF_INFO;
+    wcsncpy_s(n.szInfoTitle, ws::fromUtf8(title).c_str(), _TRUNCATE);
     wcsncpy_s(n.szInfo, ws::fromUtf8(text).c_str(), _TRUNCATE);
     Shell_NotifyIconW(NIM_MODIFY, &n);
 }
@@ -134,131 +158,15 @@ void addTrayIcon(App& app) {
     updateTooltip(app);
 }
 
-bool loadOrCreateConfig(App& app, std::string& error) {
-    if (!std::filesystem::exists(app.configPath)) {
-        if (!writeFileAtomic(app.configPath, defaultConfigToml(), error)) return false;
-        logLine(app, "config created: " + pathToUtf8(app.configPath));
-    }
-    if (!loadConfig(app.configPath, app.cfg, error)) return false;
-    // Устройства, выбранные в меню, поверх [devices] конфига.
-    std::string stateError;
-    if (!loadState(app.statePath, app.cfg.engine, stateError)) logLine(app, "state ignored: " + stateError);
-    for (const std::string& w : app.cfg.warnings) logLine(app, w);
-    if (!app.cfg.warnings.empty()) {
-        const size_t more = app.cfg.warnings.size() - 1;
-        notify(app, L"bomboec: config warnings",
-               app.cfg.warnings.front() + (more ? " (+" + std::to_string(more) + " in the log)" : ""), NIIF_WARNING);
-    }
-    return true;
-}
-
-// Если сохранённого id нет среди устройств, ищем по имени и обновляем id.
-void resolveDevicesByName(App& app) {
-    std::string error;
-    const std::vector<ws::DeviceInfo> capDevices = ws::enumerateDevices(ws::Flow::Capture, error);
-    const std::vector<ws::DeviceInfo> renDevices = ws::enumerateDevices(ws::Flow::Render, error);
-    bool changed = false;
-    auto fix = [&](std::string& id, const std::string& name, const std::vector<ws::DeviceInfo>& list,
-                   const char* what) {
-        if (id.empty()) return;
-        const std::wstring wid = ws::fromUtf8(id);
-        for (const ws::DeviceInfo& d : list) {
-            if (d.id == wid) return;
-        }
-        const std::wstring wname = ws::fromUtf8(name);
-        for (const ws::DeviceInfo& d : list) {
-            if (!wname.empty() && d.name == wname) {
-                logLine(app, std::string(what) + ": id not found, matched by name '" + name + "'");
-                id = ws::toUtf8(d.id);
-                changed = true;
-                return;
-            }
-        }
-        logLine(app, std::string(what) + ": device '" + name + "' (" + id + ") not present");
-    };
-    fix(app.cfg.engine.micId, app.cfg.engine.micName, capDevices, "mic");
-    fix(app.cfg.engine.speakersId, app.cfg.engine.speakersName, renDevices, "speakers");
-    fix(app.cfg.engine.outputId, app.cfg.engine.outputName, renDevices, "output");
-    // Выход не выбран: если установлен наш кабель, берём его.
-    if (app.cfg.engine.outputId.empty()) {
-        for (const ws::DeviceInfo& d : renDevices) {
-            if (d.name.find(L"bomboec Cable") != std::wstring::npos) {
-                app.cfg.engine.outputId = ws::toUtf8(d.id);
-                app.cfg.engine.outputName = ws::toUtf8(d.name);
-                logLine(app, "output defaulted to '" + app.cfg.engine.outputName + "'");
-                changed = true;
-                break;
-            }
-        }
-    }
-    if (changed && !saveState(app.statePath, app.cfg.engine, error)) logLine(app, "state not saved: " + error);
-}
-
-void showStatusWindow(App& app);
-
-// interactive: запуск по действию пользователя (при ошибке открывается окно статуса). Иначе
-// это повтор watchdog'а: уведомление только о первой неудаче серии, остальные в лог.
-void startEngine(App& app, bool interactive) {
-    resolveDevicesByName(app);
-    std::string error;
-    const uint64_t now = GetTickCount64();
-    if (!app.engine.start(app.cfg, error)) {
-        app.lastError = error;
-        app.watchdog.onFailed(now);
-        const std::string retry = " (retry in " + std::to_string((app.watchdog.nextAttemptMs() - now) / 1000) + " s)";
-        if (interactive || app.watchdog.failures() == 1) {
-            notify(app, L"bomboec: start failed", error + retry, NIIF_ERROR);
-        } else {
-            logLine(app, "start failed: " + error + retry);
-        }
-        if (interactive) showStatusWindow(app);
-    } else {
-        if (app.watchdog.failures() > 0) notify(app, L"bomboec: running again", "audio devices are back");
-        app.watchdog.onStarted(now);
-        app.audioLogged = false;
-        app.lastError.clear();
-        app.refRetryAtMs = now + kRefRetryMs;
-        app.refWarned = false;
-        const EngineStatus s = app.engine.status();
-        char line[1024];
-        std::snprintf(line, sizeof(line),
-                      "engine started: mic '%s' (raw %s, %u ch, %s), speakers '%s' (loopback %u ch, %s), "
-                      "output '%s' (wasapi %u ms)",
-                      s.micName.c_str(), s.micRaw ? "on" : "off", s.micDeviceChannels,
-                      s.micEventDriven ? "event" : "polling", s.referenceActive ? s.speakersName.c_str() : "none",
-                      s.refDeviceChannels, s.refEventDriven ? "event" : "polling", s.outputName.c_str(), s.outRenderMs);
-        logLine(app, line);
-        if (!s.warning.empty()) {
-            if (interactive) notify(app, L"bomboec: check the config", s.warning, NIIF_WARNING);
-            else logLine(app, "warning: " + s.warning);
-            app.refWarned = !s.referenceActive;
-        }
-    }
-    updateTooltip(app);
-}
-
-void stopEngine(App& app) {
-    const bool wasRunning = app.engine.running();
-    app.engine.stop();  // присоединяет потоки: строка в логе только после возврата
-    if (wasRunning) logLine(app, "engine stopped");
-    updateTooltip(app);
-}
-
-void restartIfRunning(App& app) {
-    if (app.engine.running()) stopEngine(app);
-    app.watchdog.clear();
-    if (app.wantRunning) startEngine(app, true);
-}
-
 std::string statusText(App& app) {
-    const EngineStatus s = app.engine.status();
+    const EngineStatus s = app.controller->status();
     char buf[2048];
     if (!s.running) {
         std::snprintf(buf, sizeof(buf),
                       "bomboec %s: stopped\r\n\r\n%s\r\n\r\n"
                       "Правый клик по иконке в трее: выбор микрофона, колонок и выхода, старт.\r\n"
                       "Конфиг: %s\r\nЛог: %s",
-                      BOMBOEC_VERSION_FULL, app.lastError.c_str(), pathToUtf8(app.configPath).c_str(),
+                      BOMBOEC_VERSION_FULL, app.controller->lastError().c_str(), pathToUtf8(app.configPath).c_str(),
                       pathToUtf8(app.logPath).c_str());
         return buf;
     }
@@ -357,14 +265,15 @@ void showMenu(App& app, int x, int y) {
     std::string error;
     app.menuCapDevices = ws::enumerateDevices(ws::Flow::Capture, error);
     app.menuRenDevices = ws::enumerateDevices(ws::Flow::Render, error);
+    const EngineSettings& dev = app.controller->config().engine;
 
     HMENU menu = CreatePopupMenu();
     AppendMenuW(menu, MF_STRING | (app.engine.running() ? MF_CHECKED : 0), ID_TOGGLE,
                 app.engine.running() ? L"Running (click to stop)" : L"Start");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    appendDeviceMenu(menu, L"Microphone", app.menuCapDevices, app.cfg.engine.micId, ID_MIC_BASE);
-    appendDeviceMenu(menu, L"Speakers (reference)", app.menuRenDevices, app.cfg.engine.speakersId, ID_SPK_BASE);
-    appendDeviceMenu(menu, L"Output (virtual mic)", app.menuRenDevices, app.cfg.engine.outputId, ID_OUT_BASE);
+    appendDeviceMenu(menu, L"Microphone", app.menuCapDevices, dev.micId, ID_MIC_BASE);
+    appendDeviceMenu(menu, L"Speakers (reference)", app.menuRenDevices, dev.speakersId, ID_SPK_BASE);
+    appendDeviceMenu(menu, L"Output (virtual mic)", app.menuRenDevices, dev.outputId, ID_OUT_BASE);
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, ID_STATUS, L"Status...");
     AppendMenuW(menu, MF_STRING, ID_CONFIG, L"Open config");
@@ -379,27 +288,16 @@ void showMenu(App& app, int x, int y) {
     DestroyMenu(menu);
 }
 
-void selectDevice(App& app, std::string& id, std::string& name, const std::vector<ws::DeviceInfo>& devices,
-                  UINT index) {
-    if (index == 0 || index - 1 >= devices.size()) {
-        id.clear();
-        name.clear();
-    } else {
-        id = ws::toUtf8(devices[index - 1].id);
-        name = ws::toUtf8(devices[index - 1].name);
-    }
-    std::string error;
-    if (!saveState(app.statePath, app.cfg.engine, error)) notify(app, L"bomboec", error, NIIF_WARNING);
-    logLine(app, "device selected: '" + name + "' (" + id + ")");
-    restartIfRunning(app);
+// Пункт подменю устройств: 0 = по умолчанию, дальше индекс в списке меню.
+std::optional<ws::DeviceInfo> menuDevice(const std::vector<ws::DeviceInfo>& devices, UINT index) {
+    if (index == 0 || index - 1 >= devices.size()) return std::nullopt;
+    return devices[index - 1];
 }
 
 void handleCommand(App& app, UINT id) {
+    Controller& ctl = *app.controller;
     if (id == ID_TOGGLE) {
-        app.wantRunning = !app.engine.running();
-        app.watchdog.clear();
-        if (app.wantRunning) startEngine(app, true);
-        else stopEngine(app);
+        ctl.toggle();
     } else if (id == ID_STATUS) {
         showStatusWindow(app);
     } else if (id == ID_CONFIG) {
@@ -407,136 +305,16 @@ void handleCommand(App& app, UINT id) {
     } else if (id == ID_LOG) {
         ShellExecuteW(nullptr, L"open", app.logPath.c_str(), nullptr, nullptr, SW_SHOW);
     } else if (id == ID_RELOAD) {
-        std::string error;
-        if (!loadOrCreateConfig(app, error)) {
-            notify(app, L"bomboec: config error", error, NIIF_ERROR);
-        } else {
-            restartIfRunning(app);
-        }
+        ctl.reload();
     } else if (id == ID_EXIT) {
         DestroyWindow(app.hwnd);
     } else if (id >= ID_MIC_BASE && id < ID_MIC_BASE + 1000) {
-        selectDevice(app, app.cfg.engine.micId, app.cfg.engine.micName, app.menuCapDevices, id - ID_MIC_BASE);
+        ctl.selectDevice(Controller::Slot::Mic, menuDevice(app.menuCapDevices, id - ID_MIC_BASE));
     } else if (id >= ID_SPK_BASE && id < ID_SPK_BASE + 1000) {
-        selectDevice(app, app.cfg.engine.speakersId, app.cfg.engine.speakersName, app.menuRenDevices, id - ID_SPK_BASE);
+        ctl.selectDevice(Controller::Slot::Speakers, menuDevice(app.menuRenDevices, id - ID_SPK_BASE));
     } else if (id >= ID_OUT_BASE && id < ID_OUT_BASE + 1000) {
-        selectDevice(app, app.cfg.engine.outputId, app.cfg.engine.outputName, app.menuRenDevices, id - ID_OUT_BASE);
+        ctl.selectDevice(Controller::Slot::Output, menuDevice(app.menuRenDevices, id - ID_OUT_BASE));
     }
-}
-
-// Reference (loopback колонок) необязателен: без него движок работает, но эхо не
-// подавляется. Пока его нет, раз в kRefRetryMs пробуем открыть заново (колонки вернулись).
-void retryReference(App& app, const EngineStatus& s, uint64_t now) {
-    if (!s.running || s.referenceActive || now < app.refRetryAtMs) return;
-    app.refRetryAtMs = now + kRefRetryMs;
-    std::string error;
-    if (app.engine.reopenReference(error)) {
-        const EngineStatus after = app.engine.status();
-        logLine(app, "reference back: '" + after.speakersName + "'");
-        if (app.refWarned)
-            notify(app, L"bomboec: reference is back", "echo cancellation resumed on '" + after.speakersName + "'");
-        app.refWarned = false;
-    } else if (!app.refWarned) {
-        app.refWarned = true;
-        notify(app, L"bomboec: no reference", error, NIIF_WARNING);
-    }
-}
-
-// Раз в секунду: иконка трея, если оболочка была не готова, и решения Watchdog
-// (перезапуск после ошибки потока или зависания, повтор неудачного старта с backoff).
-// Раз в минуту, пока движок работает: одна строка со счётчиками, по которой после суточного
-// прогона видно медленные эффекты (рост fill ctl и trimmed, ресинки, пропажа reference).
-void logStatusLine(App& app, const EngineStatus& s) {
-    auto num = [](const std::optional<double>& v) {
-        return v ? std::to_string(int(std::lround(*v))) : std::string("-");
-    };
-    char line[512];
-    std::snprintf(line, sizeof(line),
-                  "status: mic %.0f ref %.0f out %.0f dBFS, aec delay %s erle %s, ref %s missing %llu jumps %llu "
-                  "gaps %llu/%llu resyncs %llu/%llu, out %u ms margin %u under %llu over %llu fill +%llu/-%llu "
-                  "trim %llu, drift %+.0f/%+.0f ppm, frames %llu%s",
-                  s.micDb, s.refDb, s.outDb, num(s.stats.delayMs).c_str(), num(s.stats.erleDb).c_str(),
-                  s.referenceActive ? "on" : "off", (unsigned long long)s.refMissing, (unsigned long long)s.refJumps,
-                  (unsigned long long)s.micGaps, (unsigned long long)s.refGaps, (unsigned long long)s.micResyncs,
-                  (unsigned long long)s.refResyncs, s.outBufferedMs, s.outMarginMs, (unsigned long long)s.outUnderruns,
-                  (unsigned long long)s.outOverruns, (unsigned long long)s.outInserted,
-                  (unsigned long long)s.outDropped, (unsigned long long)s.outTrimmed, s.micDriftPpm, s.refDriftPpm,
-                  (unsigned long long)s.framesProcessed, s.warning.empty() ? "" : (", warning: " + s.warning).c_str());
-    logLine(app, line);
-}
-
-void watchdogTick(App& app) {
-    if (!app.trayAdded) addTrayIcon(app);
-    if (!app.wantRunning) return;
-    const uint64_t now = GetTickCount64();
-    const EngineStatus s = app.engine.status();
-    if (s.running && !app.audioLogged && s.framesProcessed > 0) {
-        app.audioLogged = true;
-        logLine(app, std::string("audio running: mmcss ") + (s.mmcss ? "on" : "off"));
-    }
-    if (s.running && ++app.statusLogTicks >= kStatusLogEverySec) {
-        app.statusLogTicks = 0;
-        logStatusLine(app, s);
-    }
-    retryReference(app, s, now);
-    switch (app.watchdog.tick(now, s.running, !s.error.empty(), s.framesProcessed)) {
-        case Watchdog::Action::Restart: {
-            const std::string why =
-                app.watchdog.reason() == Watchdog::Reason::Stall ? "no audio from the microphone for 3 s" : s.error;
-            app.lastError = why;
-            stopEngine(app);
-            app.watchdog.onFailed(now);
-            if (app.watchdog.failures() == 1) notify(app, L"bomboec: restarting", why, NIIF_WARNING);
-            else logLine(app, "watchdog: " + why);
-            break;
-        }
-        case Watchdog::Action::Start: startEngine(app, false); break;
-        case Watchdog::Action::None: break;
-    }
-}
-
-// Уведомления об устройствах собраны за окно дебаунса: устройство движка пропало или
-// сменился default, который он использует, -> стоп и немедленный старт заново (watchdog
-// без backoff); движок стоит -> попытка старта сразу; работает без reference -> открыть
-// колонки сейчас. Чужие устройства движок не трогают.
-void onDevicesChanged(App& app) {
-    const bool defaultChanged = app.defaultChangedPending;
-    app.defaultChangedPending = false;
-    const EngineStatus s = app.engine.status();
-    DeviceChangeFacts f;
-    f.running = s.running;
-    f.wantRunning = app.wantRunning;
-    f.referenceActive = s.referenceActive;
-    f.defaultChanged = defaultChanged;
-    f.usesDefault =
-        app.cfg.engine.micId.empty() || app.cfg.engine.outputId.empty() || app.cfg.engine.speakersId.empty();
-    if (s.running) {
-        std::string error;
-        const auto present = [](const std::vector<ws::DeviceInfo>& list, const std::string& id) {
-            const std::wstring wid = ws::fromUtf8(id);
-            return std::any_of(list.begin(), list.end(), [&](const ws::DeviceInfo& d) { return d.id == wid; });
-        };
-        f.micPresent = present(ws::enumerateDevices(ws::Flow::Capture, error), s.micId);
-        f.outputPresent = present(ws::enumerateDevices(ws::Flow::Render, error), s.outputId);
-    }
-    switch (decideDeviceChange(f)) {
-        case DeviceChangeAction::Restart:
-            logLine(app, std::string("devices changed: ") +
-                             (!f.micPresent      ? "microphone gone"
-                              : !f.outputPresent ? "output gone"
-                                                 : "default changed") +
-                             ", restarting");
-            stopEngine(app);
-            app.watchdog.retryNow();
-            break;
-        case DeviceChangeAction::ReopenReference: app.refRetryAtMs = 0; break;
-        case DeviceChangeAction::StartNow:
-            logLine(app, "devices changed: retrying start");
-            app.watchdog.retryNow();
-            break;
-        case DeviceChangeAction::None: break;
-    }
-    if (decideDeviceChange(f) != DeviceChangeAction::None) watchdogTick(app);
 }
 
 LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
@@ -564,10 +342,15 @@ LRESULT CALLBACK WndProc(HWND h, UINT msg, WPARAM wp, LPARAM lp) {
             SetTimer(h, kDeviceTimer, kDeviceDebounceMs, nullptr);
             return 0;
         case WM_TIMER:
-            if (wp == kWatchdogTimer) watchdogTick(app);
+            if (wp == kWatchdogTimer) {
+                if (!app.trayAdded) addTrayIcon(app);
+                app.controller->tick();
+            }
             if (wp == kDeviceTimer) {
                 KillTimer(h, kDeviceTimer);
-                onDevicesChanged(app);
+                const bool defaultChanged = app.defaultChangedPending;
+                app.defaultChangedPending = false;
+                app.controller->onDevicesChanged(defaultChanged);
             }
             return 0;
         case WM_DESTROY:
@@ -611,8 +394,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
         App app;
         gApp = &app;
         app.configPath = dataDir / "bomboec.toml";
-        app.statePath = dataDir / "bomboec.state.toml";
         app.logPath = dataDir / "bomboec.log";
+        app.controller =
+            std::make_unique<Controller>(app.engine, app.host, app.configPath, dataDir / "bomboec.state.toml");
         logLine(app, "start " BOMBOEC_VERSION_FULL);
 
         WNDCLASSW wc{};
@@ -649,14 +433,13 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, PWSTR, int) {
 
         std::string error;
         const bool firstRun = !std::filesystem::exists(app.configPath);
-        if (!loadOrCreateConfig(app, error)) {
+        if (!app.controller->loadOrCreateConfig(error)) {
             // Без конфига не стартуем и не повторяем: watchdog запустил бы пустую цепочку.
-            app.wantRunning = false;
-            app.lastError = error;
-            notify(app, L"bomboec: config error", error, NIIF_ERROR);
+            app.controller->disable(error);
+            app.host.notify("bomboec: config error", error, IHost::Level::Error);
             showStatusWindow(app);
         } else {
-            startEngine(app, true);
+            app.controller->start(true);
         }
         if (firstRun) showStatusWindow(app);
         SetTimer(app.hwnd, kWatchdogTimer, 1000, nullptr);
