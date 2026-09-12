@@ -26,7 +26,7 @@
 | Модуль | Отвечает за | Зависит от |
 |---|---|---|
 | `core` | форматы и буферы (Frame, RingBuffer), время (Timeline, PacketAssembler), FillController, SeqLock, IStage/Chain/StageRegistry, конфиг, WAV | toml++, dr_libs |
-| `stages` | стадии hpf, webrtc, limiter; заголовки WebRTC не выходят за `webrtc_stage.cpp` | core, webrtc-audio-processing |
+| `stages` | стадии hpf, webrtc, transient, rnnoise, limiter; заголовки WebRTC и RNNoise не выходят за свои `.cpp` | core, webrtc-audio-processing, rnnoise |
 | `wasapi` | устройства, CaptureStream, RenderStream; ядра не знает | Windows SDK |
 | `engine` | Pipeline (весь realtime без устройств), Engine (Pipeline + WASAPI), Watchdog, Recorder | core, wasapi, stages |
 | `app` | `Controller` (конфиг и файл состояния, старт/стоп, watchdog, устройства по имени, повтор reference, реакция на уведомления, режим on_demand по аудиосессиям микрофона кабеля, строка статуса в лог) за интерфейсами `IEngine`/`IHost`, проверяется с подделками; `main.cpp` только Win32: трей, меню, окно статуса, лог, таймеры; `paths` (каталог данных); `bomboec::crash` (минидампы) | engine |

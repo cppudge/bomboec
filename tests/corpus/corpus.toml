@@ -26,7 +26,7 @@ double_talk_min_db = 2.0   # речь громче эха: общее подав
 speech_max_loss_db = 4.0   # NS давит паузы между словами: RMS речи падает на 2-3 dB и без потери голоса
 quiet_min_reduction_db = 4.0
 burst_max_db = 6.0
-transient_min_db = 6.0     # ожидание, не факт: стуки RNNoise давит слабо, см. отчёт теста
+transient_min_db = 15.0    # без стадии transient RNNoise давал 9.4 dB
 transient_event_db = 15.0
 regression_tolerance_db = 1.5
 guard_sec = 0.3
@@ -54,7 +54,7 @@ baseline = [39.3]
 name = "noise"
 dir = "corpus/noise"
 segments = [{ type = "noise", from = 0.0, to = 20.0 }]
-baseline = [18.3]
+baseline = [22.7]   # 18.3 до гейта ударов
 
 [[scenario]]
 name = "music"
@@ -72,11 +72,12 @@ baseline = [1.6]
 name = "music-speech"
 dir = "corpus/music-speech"
 segments = [{ type = "double_talk", from = 1.0, to = 30.0 }]
-baseline = [2.4]
+baseline = [2.6]
 
 # Стуки по столу, щелчки, кружка, стойка микрофона; без речи и музыки. Baseline после записи.
 [[scenario]]
 name = "transients"
 dir = "corpus/transients"
 segments = [{ type = "transients", from = 0.0, to = 20.0 }]
-baseline = [9.4]   # 2026-09-12, AEC3 + rnnoise: 43 удара, худший 0.8 dB, остаток до -10.6 dBFS
+# 2026-09-12: без гейта 9.4 (худший удар 0.8 dB, остаток до -10.6 dBFS); с transient 31.4 (худший 20.2, остаток -29).
+baseline = [31.4]

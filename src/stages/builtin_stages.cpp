@@ -7,6 +7,7 @@ void registerBuiltinStages(StageRegistry& registry) {
     registry.add("webrtc", &makeWebrtcStage);
     registry.add("rnnoise", &makeRnnoiseStage);
     registry.add("limiter", &makeLimiterStage);
+    registry.add("transient", &makeTransientStage);
 }
 
 }  // namespace bomboec

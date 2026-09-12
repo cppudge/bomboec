@@ -5,6 +5,7 @@ add_library(bomboec_stages STATIC
     limiter_stage.cpp
     webrtc_stage.cpp
     rnnoise_stage.cpp
+    transient_stage.cpp
 )
 add_library(bomboec::stages ALIAS bomboec_stages)
 target_include_directories(bomboec_stages PUBLIC ${PROJECT_SOURCE_DIR}/src)

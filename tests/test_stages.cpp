@@ -89,6 +89,76 @@ TEST_CASE("Limiter stage keeps peaks under the ceiling") {
     CHECK(mic.channel(0)[fmt.frameSamples - 1] == Approx(0.1f).margin(1e-3));
 }
 
+TEST_CASE("Transient stage gates a sharp click, holds through the ring-down and passes a speech-like onset") {
+    const PipelineFormat fmt;
+    auto stage = makeTransientStage();
+    const toml::table cfg;
+    StageParams params(cfg);
+    std::string error;
+    REQUIRE(stage->init(fmt, params, error));
+    const uint32_t n = fmt.frameSamples;
+    Frame mic(1, n);
+    std::mt19937 rng(7);
+    std::normal_distribution<float> noise(0.0f, 1.0f);
+    auto rms = [](std::span<const float> x) {
+        double e = 0.0;
+        for (const float v : x) e += double(v) * v;
+        return std::sqrt(e / double(x.size()));
+    };
+
+    // Тихий шум комнаты: гейт молчит.
+    for (int f = 0; f < 5; ++f) {
+        for (float& v : mic.channel(0)) v = 0.001f * noise(rng);
+        stage->process(mic, nullptr);
+    }
+    CHECK(stage->stats().transients == 0);
+
+    // Щелчок -10 dBFS с середины кадра, затухание 3 ms: срабатывание, удар давится на глубину гейта.
+    std::vector<float> in(n);
+    for (uint32_t i = 0; i < n; ++i) {
+        const float t = i >= 200 ? float(i - 200) / 48.0f : -1.0f;
+        in[i] = 0.001f * noise(rng) + (t >= 0.0f ? 0.3f * std::exp(-t / 3.0f) * noise(rng) : 0.0f);
+    }
+    std::copy(in.begin(), in.end(), mic.channel(0).begin());
+    stage->process(mic, nullptr);
+    CHECK(stage->stats().transients == 1);
+    const double clickIn = rms(std::span<const float>(in).subspan(200, 200));
+    const double clickOut = rms(mic.channel(0).subspan(200, 200));
+    CHECK(20.0 * std::log10(clickOut / clickIn) < -17.0);  // depth_db 20 минус запас
+    // Пре-ролл: два блока перед щелчком тоже под гейтом, кадр до него нет.
+    CHECK(mic.channel(0)[150] == Catch::Approx(in[150] * 0.1f).margin(1e-6f));
+    CHECK(mic.channel(0)[50] == Catch::Approx(in[50]).margin(1e-7f));
+
+    // Удержание 60 ms: следующие кадры ещё под гейтом; release 100 ms: через 400 ms
+    // усиление 1 - 0.9 * exp(-3.4) = 0.97.
+    for (int f = 0; f < 3; ++f) {
+        for (float& v : mic.channel(0)) v = 0.05f * noise(rng);
+        stage->process(mic, nullptr);
+    }
+    CHECK(rms(mic.channel(0)) < 0.05 * 0.2);
+    for (int f = 0; f < 40; ++f) {
+        for (float& v : mic.channel(0)) v = 0.05f * noise(rng);
+        stage->process(mic, nullptr);
+    }
+    CHECK(rms(mic.channel(0)) > 0.05 * 0.95);
+    CHECK(stage->stats().transients == 1);
+
+    // Речевое начало: синус 200 Hz нарастает из тишины до -10 dBFS за 40 ms, не быстрее
+    // 2 dB/ms там, где уровень уже выше level_dbfs. Гейт не срабатывает.
+    stage->reset();
+    uint32_t k = 0;
+    for (int f = 0; f < 6; ++f) {
+        for (float& v : mic.channel(0)) {
+            const float a = std::min(1.0f, float(k) / (0.04f * 48000.0f));
+            v = 0.3f * a * std::sin(2.0f * 3.14159265f * 200.0f * float(k) / 48000.0f);
+            ++k;
+        }
+        stage->process(mic, nullptr);
+    }
+    CHECK(stage->stats().transients == 0);
+    CHECK(rms(mic.channel(0)) == Catch::Approx(0.3 / std::sqrt(2.0)).epsilon(0.02));
+}
+
 TEST_CASE("WebRTC stage cancels a delayed synthetic echo") {
     const PipelineFormat fmt;
     auto stage = makeWebrtcStage();

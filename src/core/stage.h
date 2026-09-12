@@ -17,6 +17,7 @@ enum class Cap : uint32_t {
     Ns = 1u << 2,
     Agc = 1u << 3,
     Limiter = 1u << 4,
+    Transient = 1u << 5,  // гейт импульсных помех (стук, щелчок)
 };
 
 constexpr uint32_t capBit(Cap c) { return static_cast<uint32_t>(c); }
@@ -41,6 +42,7 @@ struct StageStats {
     std::optional<double> gainDb;
     std::optional<double> vadProbability;  // вероятность речи в последнем кадре (NS)
     uint64_t errors = 0;                   // кадров, которые бэкенд вернул с ошибкой (Chain суммирует)
+    uint64_t transients = 0;               // срабатываний гейта импульсных помех (Chain суммирует)
 };
 
 class IStage {

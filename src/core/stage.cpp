@@ -9,6 +9,7 @@ const char* capName(Cap c) {
         case Cap::Ns: return "ns";
         case Cap::Agc: return "agc";
         case Cap::Limiter: return "limiter";
+        case Cap::Transient: return "transient";
     }
     return "?";
 }

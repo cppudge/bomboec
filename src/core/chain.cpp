@@ -63,6 +63,7 @@ StageStats Chain::stats() const {
         if (!out.gainDb && s.gainDb) out.gainDb = s.gainDb;
         if (!out.vadProbability && s.vadProbability) out.vadProbability = s.vadProbability;
         out.errors += s.errors;
+        out.transients += s.transients;
     }
     return out;
 }

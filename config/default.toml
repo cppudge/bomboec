@@ -40,6 +40,17 @@ agc = false
 filter_length_blocks = 13
 delay_num_filters = 5
 
+# Гейт ударов и щелчков по скорости атаки (стук по столу, ручка, кружка): RNNoise принимает их
+# за речь и пропускает. Речь нарастает не быстрее 15-20 dB/ms, удары 25-45; тихие (< level_dbfs)
+# и глухие удары RNNoise давит сам.
+[[chain]]
+id = "transient"
+rise_db_per_ms = 20.0
+level_dbfs = -30.0
+depth_db = 20.0
+hold_ms = 60.0
+release_ms = 100.0
+
 # Шумоподавление на RNNoise: клавиатуру и щелчки давит на 18 dB против 5 dB у NS WebRTC.
 [[chain]]
 id = "rnnoise"
