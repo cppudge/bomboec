@@ -79,3 +79,4 @@ baseline = [2.4]
 name = "transients"
 dir = "corpus/transients"
 segments = [{ type = "transients", from = 0.0, to = 20.0 }]
+baseline = [9.4]   # 2026-09-12, AEC3 + rnnoise: 43 удара, худший 0.8 dB, остаток до -10.6 dBFS

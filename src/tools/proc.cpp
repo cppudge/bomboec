@@ -127,7 +127,7 @@ int run(int argc, char** argv) {
     std::FILE* csv = nullptr;
     if (!args["csv"].as<std::string>().empty()) {
         _wfopen_s(&csv, pathFromUtf8(args["csv"].as<std::string>()).wstring().c_str(), L"wb");
-        if (csv) std::fprintf(csv, "t_s,mic_dbfs,ref_dbfs,out_dbfs,delay_ms,erl_db,erle_db,residual_echo\n");
+        if (csv) std::fprintf(csv, "t_s,mic_dbfs,ref_dbfs,out_dbfs,delay_ms,erl_db,erle_db,residual_echo,vad\n");
     }
 
     const double offsetMs = args["ref-offset-ms"].as<double>();
@@ -202,9 +202,10 @@ int run(int argc, char** argv) {
             convergedAt = t;
         }
         if (csv) {
-            std::fprintf(csv, "%.3f,%.2f,%.2f,%.2f,%s,%s,%s,%s\n", t, dbfs(inRms), dbfs(refRms), dbfs(outRms),
+            std::fprintf(csv, "%.3f,%.2f,%.2f,%.2f,%s,%s,%s,%s,%s\n", t, dbfs(inRms), dbfs(refRms), dbfs(outRms),
                          fmtOpt(st.delayMs, "%.0f").c_str(), fmtOpt(st.erlDb, "%.2f").c_str(),
-                         fmtOpt(st.erleDb, "%.2f").c_str(), fmtOpt(st.residualEchoLikelihood, "%.3f").c_str());
+                         fmtOpt(st.erleDb, "%.2f").c_str(), fmtOpt(st.residualEchoLikelihood, "%.3f").c_str(),
+                         fmtOpt(st.vadProbability, "%.3f").c_str());
         }
 
         if (secFrames * fmt.frameSamples >= fmt.sampleRate) {
