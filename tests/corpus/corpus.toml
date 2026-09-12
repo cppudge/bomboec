@@ -82,6 +82,13 @@ dir = "corpus/music-speech"
 segments = [{ type = "double_talk", from = 1.0, to = 30.0 }]
 baseline = [2.4]
 
+# Живая громкая речь, как в звонке (2026-09-12): пик -6 dBFS против -8.6 у чтения.
+[[scenario]]
+name = "speech-call"
+dir = "corpus/speech-call"
+segments = [{ type = "speech", from = 0.0, to = 30.0 }]
+baseline = [1.1]
+
 # Стуки по столу, щелчки, кружка, стойка микрофона; без речи и музыки. Baseline после записи.
 [[scenario]]
 name = "transients"
@@ -122,3 +129,30 @@ speech = "corpus/speech"
 echo = "corpus/music"
 echo_gain_db = -10.0
 baseline = [9.1, 0.118, 35.0]
+
+# Те же смеси на живой речи (speech-call, пик -6 dBFS): громкий голос цепочка портит меньше
+# (lsd 3.3 против 6.8 на тихом чтении), а гейт transient на нём срабатывает сам по себе
+# (провалы 3.8 % -> 11 % без всякой помехи), что и слышал пользователь.
+[[mix]]
+name = "call-alone"
+speech = "corpus/speech-call"
+baseline = [3.3, 0.038, 12.9]
+
+[[mix]]
+name = "call+keyboard"
+speech = "corpus/speech-call"
+noise = "corpus/noise"
+baseline = [4.8, 0.042, 22.8]
+
+[[mix]]
+name = "call+knocks"
+speech = "corpus/speech-call"
+noise = "corpus/transients"
+baseline = [5.5, 0.049, 26.5]
+
+[[mix]]
+name = "call+music-echo-10"
+speech = "corpus/speech-call"
+echo = "corpus/music"
+echo_gain_db = -10.0
+baseline = [7.7, 0.078, 28.2]
