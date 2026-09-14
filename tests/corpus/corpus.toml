@@ -37,13 +37,13 @@ double_talk_min_db = 1.5   # речь громче эха: общее подав
 speech_max_loss_db = 4.0   # NS давит паузы между словами: RMS речи падает на 2-3 dB и без потери голоса
 quiet_min_reduction_db = 4.0
 burst_max_db = 6.0
-transient_min_db = 6.0     # шаблон без гейта: 12.7 dB; с gate = true в rnnoise 37.2
+transient_min_db = 6.0     # шаблон (gate = true в rnnoise): 37.2 dB; без гейта 12.7
 transient_event_db = 15.0
 mix_speech_lsd_max_db = 18.0  # эхо на уровне речи даёт 10.8: AEC3 давит голос в double-talk
 mix_dip_max = 0.3
 mix_noise_min_db = 6.0
 mix_render_max_db = 0.5    # звук в колонках мимо микрофона: lsd против той же речи без него через
-                           # ту же цепочку. echo_path_default_gain 1.0 даёт 0.87, 0.4 даёт 0.22
+                           # ту же цепочку. echo_path_default_gain 1.0 даёт 0.87, 0.4 даёт 0.23
 regression_tolerance_db = 1.5
 guard_sec = 0.3
 
@@ -70,7 +70,7 @@ baseline = [38.9]
 name = "noise"
 dir = "corpus/noise"
 segments = [{ type = "noise", from = 0.0, to = 20.0 }]
-baseline = [19.5]   # 30.0 с gate = true в rnnoise
+baseline = [30.0]   # 19.5 без гейта в rnnoise
 
 [[scenario]]
 name = "music"
@@ -82,7 +82,7 @@ baseline = [54.0]   # 50.5 при echo_path_default_gain 1.0
 name = "speech"
 dir = "corpus/speech"
 segments = [{ type = "speech", from = 0.0, to = 30.0 }]
-baseline = [1.6]
+baseline = [1.7]
 
 [[scenario]]
 name = "music-speech"
@@ -102,29 +102,31 @@ baseline = [1.2]
 name = "transients"
 dir = "corpus/transients"
 segments = [{ type = "transients", from = 0.0, to = 20.0 }]
-# 2026-09-14: без гейта 12.7 (остаток до -11.5 dBFS); с gate = true в rnnoise 37.2 (остаток -33.5).
-baseline = [12.7]
+# 2026-09-14: с gate = true в rnnoise 37.2 (остаток до -33.5 dBFS); без гейта 12.7 (остаток -11.5).
+baseline = [37.2]
 
-# Смеси из тех же записей (шаблон hpf 90 Hz + AEC3 + rnnoise; выход выровнен до сэмпла с 2026-09-14,
-# до того до кадра, и lsd с эхом был завышен на 3 dB). Сама цепочка на чистой речи: lsd 4.9, провалы
-# 9.0 % (тихие согласные); помеха добавляет к этому 1-3 dB lsd, эхо на уровне речи 6 dB
-# (docs/research/2026-09-12-ns-quality.md, docs/research/2026-09-14-transient-gate.md).
+# Смеси из тех же записей (шаблон hpf 90 Hz + AEC3 + rnnoise с гейтом ударов; выход выровнен до
+# сэмпла с 2026-09-14, до того до кадра, и lsd с эхом был завышен на 3 dB). Сама цепочка на чистой
+# речи: lsd 5.0, провалы 9.4 % (тихие согласные); помеха добавляет к этому 1-3 dB lsd, эхо на уровне
+# речи 6 dB. Гейт стоит 0.4-0.6 dB lsd и около 2 % провалов на смесях с ударами и клавиатурой, зато
+# удары давятся на 35 dB вместо 17-29 (docs/research/2026-09-12-ns-quality.md,
+# docs/research/2026-09-14-transient-gate.md).
 [[mix]]
 name = "speech-alone"
 speech = "corpus/speech"
-baseline = [4.9, 0.09, 15.9]
+baseline = [5.0, 0.094, 15.9]
 
 [[mix]]
 name = "speech+keyboard"
 speech = "corpus/speech"
 noise = "corpus/noise"
-baseline = [6.2, 0.103, 24.2]
+baseline = [6.6, 0.121, 27.2]
 
 [[mix]]
 name = "speech+knocks"
 speech = "corpus/speech"
 noise = "corpus/transients"
-baseline = [7.5, 0.097, 17.4]
+baseline = [7.9, 0.115, 34.7]
 
 [[mix]]
 name = "speech+music-echo"
@@ -146,19 +148,19 @@ baseline = [7.0, 0.108, 26.3]
 [[mix]]
 name = "call-alone"
 speech = "corpus/speech-call"
-baseline = [3.4, 0.039, 12.8]
+baseline = [3.5, 0.044, 12.8]
 
 [[mix]]
 name = "call+keyboard"
 speech = "corpus/speech-call"
 noise = "corpus/noise"
-baseline = [5.0, 0.047, 23.1]
+baseline = [5.6, 0.066, 27.4]
 
 [[mix]]
 name = "call+knocks"
 speech = "corpus/speech-call"
 noise = "corpus/transients"
-baseline = [5.5, 0.05, 29.4]
+baseline = [6.1, 0.074, 35.3]
 
 [[mix]]
 name = "call+music-echo-10"
@@ -177,4 +179,4 @@ name = "call+quiet-render"
 speech = "corpus/speech-call"
 render = "corpus/speech-call"
 render_shifts_ms = [0.0, 1.0, 2.0, 3.0, 5.0, 7.0]
-baseline = [3.5, 0.041, 12.8]   # при 1.0: [4.1, 0.06, 13.0], против той же речи без звука 0.87 dB
+baseline = [3.5, 0.045, 12.8]   # против той же речи без звука 0.23 dB; без гейта и при 1.0: 0.87

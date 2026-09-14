@@ -79,12 +79,13 @@ echo_path_default_gain = 0.4
 # уровня голоса. На корпусе (docs/research/2026-09-14-transient-gate.md): удары 12.7 -> 37.2 dB,
 # самый громкий остаток -11.5 -> -33.5 dBFS, клавиатура 19.5 -> 30.0 dB. Цена - провалы голоса
 # (доля просевших кадров): живая речь 3.9 -> 4.4 %, со стуками 5.0 -> 7.4 %, с клавиатурой
-# 4.7 -> 6.6 %. Настройки gate_* и их значения по умолчанию - в src/stages/rnnoise_stage.cpp.
-# Отдельная стадия transient (с задержкой lookahead_ms) осталась для цепочки с NS из WebRTC.
+# 4.7 -> 6.6 %; на слух голос не страдает (прослушано 2026-09-14). Настройки gate_* и их значения
+# по умолчанию - в src/stages/rnnoise_stage.cpp. Отдельная стадия transient (с задержкой
+# lookahead_ms) осталась для цепочки с NS из WebRTC.
 [[chain]]
 id = "rnnoise"
 input_gain_db = 0.0
-gate = false
+gate = true
 
 [[chain]]
 id = "limiter"

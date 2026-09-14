@@ -181,6 +181,9 @@ bomboec-proc --mic <смесь>.wav --ref recordings/corpus/speech-call/ref.wav 
 
 Если голос на слух не страдает, `gate = true` можно ставить в шаблон и в `bomboec.toml` рядом с exe.
 
+Прослушано 2026-09-14 вместе с исправлением старта AEC3 (`docs/research/2026-09-14-aec-startup.md`):
+речь хорошо слышна, у версии с гейтом проблем нет. `gate = true` стоит в шаблоне и в `bomboec.toml`.
+
 ## Что дальше
 
 - Прослушивание и решение про `gate = true` по умолчанию.
