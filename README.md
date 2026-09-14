@@ -110,18 +110,27 @@ lead с запасом; иначе эхо не подавляется, а `delay
 | id | Возможности | Ключи |
 |---|---|---|
 | `hpf` | hpf | `cutoff_hz` (80) |
-| `webrtc` | aec, и по флагам hpf/ns/agc | `aec` (true), `hpf` (false), `ns` (false; в шаблоне true), `ns_level` (moderate; в шаблоне high: low, moderate, high, very_high), `agc` (false), `filter_length_blocks` (13, 1..60), `delay_num_filters` (5, 1..20) |
-| `transient` | transient | `rise_db_per_ms` (20, 5..60), `level_dbfs` (-30, -80..0), `depth_db` (20, 0..60), `hold_ms` (60, 0..1000), `release_ms` (100, 1..5000) |
-| `rnnoise` | ns | без ключей |
+| `webrtc` | aec, и по флагам hpf/ns/agc | `aec` (true), `hpf` (false), `ns` (false; в шаблоне true), `ns_level` (moderate; в шаблоне high: low, moderate, high, very_high), `agc` (false), `filter_length_blocks` (13, 1..60), `delay_num_filters` (5, 1..20), `nearend_*` и `normal_*` - пороги подавителя AEC3 (список и штатные значения в `src/stages/webrtc_stage.cpp`), `echo_path_default_gain` (1.0, 0..1; в шаблоне 0.4) - оценка эха как доля reference, пока фильтр AEC3 не сошёлся |
+| `transient` | transient | `mode` (hold: hold, duck), `rise_db_per_ms` (20, 5..60), `level_dbfs` (-30, -80..0), `depth_db` (20, 0..60), `hold_ms` (60, 0..1000), `release_ms` (100, 1..5000), `harmonicity_max` (1.0 = выключена, 0..1), `lookahead_ms` (0, 0..8), `preroll_ms` (2, 0..10), `margin_db` (3, 0..40) |
+| `rnnoise` | ns, и transient при `gate` | `input_gain_db` (0, -40..40), `gate` (false), `gate_*` - ключи `transient` со своими значениями по умолчанию: `gate_mode` duck, `gate_depth_db` 30, `gate_margin_db` 15, `gate_release_ms` 10, `gate_harmonicity_max` 0.4, `gate_lookahead_ms` 8 (0..20) |
 | `limiter` | limiter | `ceiling_db` (-1.0, -60..0), `release_ms` (50, 0.1..10000) |
 
-Шумоподавление: в шаблоне стадия `rnnoise` (рекуррентная сеть xiph, задержка один кадр);
+Шумоподавление: в шаблоне стадия `rnnoise` (рекуррентная сеть xiph, задержка два кадра, 20 ms);
 NS из WebRTC остаётся в стадии `webrtc` (`ns = true`, тогда `rnnoise` из цепочки убрать: две стадии
 с одной возможностью не допускаются). На корпусе записей (docs/measurements.md) RNNoise давит
 клавиатуру на 18 dB против 5 dB у WebRTC при той же потере речи. Громкие удары с резкой атакой
-(стук по столу, ручка, кружка) RNNoise принимает за речь и пропускает: их гасит стадия `transient`
-перед ним, гейт по скорости нарастания огибающей за 1 ms (речь не быстрее 15-20 dB/ms, удары
-25-45) с удержанием на отскоки. После правки конфига пункт меню «Reload config».
+(стук по столу, ручка, кружка) RNNoise принимает за речь и пропускает. Их гасит гейт по скорости
+нарастания огибающей (речь не быстрее 15-20 dB/ms, удары 25-45) с проверкой гармоничности: `gate =
+true` в стадии `rnnoise` (без своей задержки: детектор на входе сети, усиление на её выходе) или
+отдельная стадия `transient` перед NS (задержка `lookahead_ms`). После правки конфига пункт меню
+«Reload config».
+
+Первые секунды после старта, пока адаптивный фильтр AEC3 не сошёлся, AEC3 не знает, насколько
+громко колонки слышны в микрофоне, и считает эхо равным reference с усилением
+`echo_path_default_gain`. При штатном 1.0 любой звук в колонках, даже тихий и до микрофона не
+доходящий, резал голос того же уровня на 20-50 dB, пока через 6 секунд без схождения AEC3 не
+признавал, что эха нет. В шаблоне 0.4: провалы голоса почти исчезают, а эхо громкой музыки на старте
+давится как при 1.0; ниже 0.3 оно на старте прорывается (docs/research/2026-09-14-aec-startup.md).
 
 Интерфейс стадии и правила для новых бэкендов: `src/core/stage.h` (новая стадия регистрируется в
 `StageRegistry` по строковому id).

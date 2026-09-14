@@ -14,8 +14,9 @@
 // Манифест: tests/corpus/corpus.toml (формат описан там). Записи лежат вне git
 // (recordings/, большие WAV); без них тест пропускается. Обновить базовые значения:
 //   set BOMBOEC_CORPUS_BASELINE=1 && bomboec_tests "[corpus]"   (печатает строки для манифеста)
-// Сравнить цепочки: BOMBOEC_CORPUS_CONFIG=<toml> подменяет конфиг (пороги и baseline тогда
-// только печатаются, не проверяются).
+// Сравнить цепочки: BOMBOEC_CORPUS_CONFIG=<toml> подменяет конфиг (пороги и baseline тогда не
+// проверяются, отчёт по каждому сценарию и смеси печатается). Послушать смеси:
+// BOMBOEC_CORPUS_DUMP=<каталог> пишет туда вход, выход и чистый прогон каждой смеси.
 
 #include "core/config.h"
 #include "core/wav.h"
@@ -65,6 +66,8 @@ struct Mix {
     fs::path speech;  // каталог сценария с чистой речью (mic.wav)
     fs::path noise;   // каталог с шумом без речи (mic.wav), пусто = без шума
     fs::path echo;    // каталог с эхом без речи (mic.wav + ref.wav), пусто = без reference
+    fs::path render;  // каталог, чей ref.wav звучит в колонках, но в микрофон не попадает (без его mic.wav)
+    std::vector<double> renderShiftsMs;  // прогоны со сдвигом reference, метрики усредняются; пусто = один без сдвига
     double noiseGainDb = 0.0, echoGainDb = 0.0;
     std::optional<double> baseLsd, baseDip, baseNoise;
 };
@@ -80,6 +83,7 @@ struct Thresholds {
     double mixSpeechLsdMaxDb = 6.0;  // смесь: среднее спектральное расстояние выхода от чистой речи
     double mixDipMax = 0.05;         // смесь: доля речевых кадров, просевших > 6 dB против медианы
     double mixNoiseMinDb = 6.0;      // смесь: подавление на кадрах без речи
+    double mixRenderMaxDb = 0.5;     // смесь с render: lsd против чистой речи через ту же цепочку
     double regressionToleranceDb = 1.5;
     double guardSec = 0.3;  // края сегмента не в счёт (переходы, задержка выхода)
 };
@@ -130,6 +134,7 @@ bool loadCorpus(const fs::path& manifest, Corpus& out, std::string& error) {
         out.th.mixSpeechLsdMaxDb = (*t)["mix_speech_lsd_max_db"].value_or(out.th.mixSpeechLsdMaxDb);
         out.th.mixDipMax = (*t)["mix_dip_max"].value_or(out.th.mixDipMax);
         out.th.mixNoiseMinDb = (*t)["mix_noise_min_db"].value_or(out.th.mixNoiseMinDb);
+        out.th.mixRenderMaxDb = (*t)["mix_render_max_db"].value_or(out.th.mixRenderMaxDb);
         out.th.regressionToleranceDb = (*t)["regression_tolerance_db"].value_or(out.th.regressionToleranceDb);
         out.th.guardSec = (*t)["guard_sec"].value_or(out.th.guardSec);
     }
@@ -171,6 +176,18 @@ bool loadCorpus(const fs::path& manifest, Corpus& out, std::string& error) {
             m.speech = out.root / (*t)["speech"].value_or(std::string());
             if (const auto v = (*t)["noise"].value<std::string>()) m.noise = out.root / *v;
             if (const auto v = (*t)["echo"].value<std::string>()) m.echo = out.root / *v;
+            if (const auto v = (*t)["render"].value<std::string>()) m.render = out.root / *v;
+            if (!m.echo.empty() && !m.render.empty()) {
+                error = "mix '" + m.name + "': echo and render both set the reference";
+                return false;
+            }
+            if (const toml::array* shifts = (*t)["render_shifts_ms"].as_array()) {
+                for (const toml::node& v : *shifts) m.renderShiftsMs.push_back(v.value_or(0.0));
+                if (m.render.empty()) {
+                    error = "mix '" + m.name + "': render_shifts_ms without render";
+                    return false;
+                }
+            }
             m.noiseGainDb = (*t)["noise_gain_db"].value_or(0.0);
             m.echoGainDb = (*t)["echo_gain_db"].value_or(0.0);
             if (const toml::array* b = (*t)["baseline"].as_array()) {
@@ -209,16 +226,18 @@ double rmsDb(const std::vector<float>& x, size_t from, size_t to) {
     return 10.0 * std::log10(e / double(to - from) + 1e-12);
 }
 
-// Максимум по окнам 100 ms превышения выхода над входом, dB.
-// Задержка выхода относительно микрофона (кадр, запас кольца, фаза чтения): максимум
-// корреляции огибающих RMS по 10 ms при лаге 0..20 кадров. Без выравнивания щелчок на границе
-// окна попадал бы в выход на окно позже и выглядел всплеском.
-size_t estimateLagSamples(const std::vector<float>& mic, const std::vector<float>& out, size_t frame) {
-    const size_t n = std::min(mic.size(), out.size()) / frame;
+// Задержка выхода относительно входа (кадры стадий, запас кольца, фаза чтения) с точностью до
+// сэмпла. Грубо: максимум корреляции огибающих RMS по 10 ms при лаге 0..20 кадров. Точно:
+// взаимная корреляция самих сигналов в пределах кадра от грубого лага, по самым громким кадрам
+// входа (там сигнал на выходе есть и после NS). Выравнивание только до кадра засчитывало бы
+// задержку стадии меньше кадра (lookahead гейта) как порчу голоса: спектры кадров расходятся.
+// Без выравнивания щелчок на границе окна попадал бы в выход на окно позже и выглядел всплеском.
+size_t estimateLagSamples(const std::vector<float>& in, const std::vector<float>& out, size_t frame) {
+    const size_t n = std::min(in.size(), out.size()) / frame;
     if (n < 40) return 0;
     std::vector<double> em(n), eo(n);
     for (size_t k = 0; k < n; ++k) {
-        em[k] = rmsDb(mic, k * frame, (k + 1) * frame);
+        em[k] = rmsDb(in, k * frame, (k + 1) * frame);
         eo[k] = rmsDb(out, k * frame, (k + 1) * frame);
     }
     size_t bestLag = 0;
@@ -231,9 +250,32 @@ size_t estimateLagSamples(const std::vector<float>& mic, const std::vector<float
             bestLag = lag;
         }
     }
-    return bestLag * frame;
+
+    constexpr size_t kLoudFrames = 300;
+    std::vector<size_t> order(n - 22);  // кадры, у которых есть выход на любом лаге уточнения
+    for (size_t k = 0; k < order.size(); ++k) order[k] = k + 1;
+    const size_t keep = std::min(kLoudFrames, order.size());
+    std::partial_sort(order.begin(), order.begin() + std::ptrdiff_t(keep), order.end(),
+                      [&](size_t a, size_t b) { return em[a] > em[b]; });
+    const size_t coarse = bestLag * frame;
+    const size_t lo = coarse >= frame ? coarse - frame : 0;
+    size_t lag = coarse;
+    best = -1e300;
+    for (size_t l = lo; l <= coarse + frame; ++l) {
+        double sum = 0.0;
+        for (size_t j = 0; j < keep; ++j) {
+            const size_t a = order[j] * frame;
+            for (size_t i = 0; i < frame; ++i) sum += double(in[a + i]) * out[a + i + l];
+        }
+        if (sum > best) {
+            best = sum;
+            lag = l;
+        }
+    }
+    return lag;
 }
 
+// Максимум по окнам 100 ms превышения выхода над входом, dB.
 double maxBurstDb(const std::vector<float>& mic, const std::vector<float>& out, size_t from, size_t to) {
     constexpr size_t kWindow = 4800;
     double worst = -120.0;
@@ -361,6 +403,31 @@ bool runChain(const AppConfig& cfg, const std::vector<float>& mic, const std::ve
     return true;
 }
 
+// Лаг выхода для сценариев: оценивается на записи чистой речи первой смеси, которую цепочка
+// пропускает, и запоминается на конфиг. На самих сценариях корреляции часто не за что
+// зацепиться: тишина и эхо без речи на выходе почти нули, а удары, которые убрал гейт, уводили
+// оценку на 9 ms. Лаг задаёт движок и стадии, от записи он зависит на пару сэмплов.
+std::optional<size_t> chainLagSamples(const Corpus& corpus, const AppConfig& cfg) {
+    static std::string cachedConfig;
+    static std::optional<size_t> cached;
+    const std::string key = corpus.config.empty() ? std::string(defaultConfigToml()) : corpus.config;
+    if (cached && cachedConfig == key) return cached;
+    for (const Mix& m : corpus.mixes) {
+        std::vector<float> speech;
+        std::string error;
+        if (!fs::exists(m.speech / "mic.wav") || !readMicMono(m.speech, cfg.format.sampleRate, speech, error)) continue;
+        speech.resize(std::min(speech.size(), size_t(10 * cfg.format.sampleRate)));
+        double micPpm = 0.0, refPpm = 0.0;
+        readDrift(m.speech / "metadata.json", micPpm, refPpm);
+        PipelineSim sim;
+        if (!runChain(cfg, speech, {}, 0, micPpm, refPpm, sim, error)) return std::nullopt;
+        cached = estimateLagSamples(speech, sim.output, cfg.format.frameSamples);
+        cachedConfig = key;
+        return cached;
+    }
+    return std::nullopt;
+}
+
 bool runScenario(const Corpus& corpus, const Scenario& sc, ScenarioResult& r, std::string& error) {
     AppConfig cfg;
     if (!loadChainConfig(corpus, cfg, error)) return false;
@@ -380,7 +447,8 @@ bool runScenario(const Corpus& corpus, const Scenario& sc, ScenarioResult& r, st
 
     const double rate = cfg.format.sampleRate;
     // Выход сдвинут на задержку конвейера: сравниваем одно и то же время.
-    const size_t lag = estimateLagSamples(mic, sim.output, cfg.format.frameSamples);
+    const std::optional<size_t> chainLag = chainLagSamples(corpus, cfg);
+    const size_t lag = chainLag ? *chainLag : estimateLagSamples(mic, sim.output, cfg.format.frameSamples);
     r.outLagMs = double(lag) * 1000.0 / rate;
     const std::vector<float> out(sim.output.begin() + std::ptrdiff_t(std::min(lag, sim.output.size())),
                                  sim.output.end());
@@ -469,46 +537,18 @@ void addScaled(std::vector<float>& mix, const std::vector<float>& src, double ga
     for (size_t i = 0; i < std::min(mix.size(), src.size()); ++i) mix[i] += g * src[i];
 }
 
-bool runMix(const Corpus& corpus, const Mix& m, MixResult& r, std::string& error) {
-    AppConfig cfg;
-    if (!loadChainConfig(corpus, cfg, error)) return false;
-    const uint32_t rate = cfg.format.sampleRate;
-    const size_t frame = cfg.format.frameSamples;
-    std::vector<float> clean, noise, echoMic, refData;
-    uint32_t refCh = 0;
-    if (!readMicMono(m.speech, rate, clean, error)) return false;
-    if (!m.noise.empty() && !readMicMono(m.noise, rate, noise, error)) return false;
-    double micPpm = 0.0, refPpm = 0.0;
-    readDrift(m.speech / "metadata.json", micPpm, refPpm);
-    if (!m.echo.empty()) {
-        uint32_t refRate = 0;
-        if (!readMicMono(m.echo, rate, echoMic, error) ||
-            !readWavFile(m.echo / "ref.wav", refData, refCh, refRate, error)) {
-            return false;
-        }
-        if (refRate != rate) {
-            error = "sample rate mismatch in " + (m.echo / "ref.wav").string();
-            return false;
-        }
-        readDrift(m.echo / "metadata.json", micPpm, refPpm);  // пара mic/ref эха согласована по дрейфу
-    }
-    std::vector<float> mix = clean;
-    addScaled(mix, noise, m.noiseGainDb);
-    addScaled(mix, echoMic, m.echoGainDb);
+bool writeMono(const fs::path& path, const std::vector<float>& data, uint32_t rate, std::string& error) {
+    WavWriter w;
+    if (!w.open(path, 1, rate, error)) return false;
+    w.write(data.data(), data.size());
+    return true;
+}
 
-    PipelineSim simMix, simClean;
-    if (!runChain(cfg, mix, refData, refCh, micPpm, refPpm, simMix, error)) return false;
-    if (!runChain(cfg, clean, {}, 0, micPpm, refPpm, simClean, error)) return false;
-    r.transients = simMix.pipeline.chainStats().transients;
-
-    const size_t lag = estimateLagSamples(mix, simMix.output, frame);
-    r.outLagMs = double(lag) * 1000.0 / rate;
-    const std::vector<float> out(simMix.output.begin() + std::ptrdiff_t(std::min(lag, simMix.output.size())),
-                                 simMix.output.end());
-    const size_t lagClean = estimateLagSamples(clean, simClean.output, frame);
-    const std::vector<float> cleanOut(
-        simClean.output.begin() + std::ptrdiff_t(std::min(lagClean, simClean.output.size())), simClean.output.end());
-
+// Метрики выхода одной смеси: out (уже выровнен) против чистой речи clean и против её прогона
+// через ту же цепочку cleanOut.
+bool mixMetrics(const Corpus& corpus, const Mix& m, const std::vector<float>& clean, const std::vector<float>& mix,
+                const std::vector<float>& out, const std::vector<float>& cleanOut, uint32_t rate, size_t frame,
+                MixResult& r, std::string& error) {
     const size_t frames = std::min({clean.size(), out.size(), cleanOut.size()}) / frame;
     std::vector<double> cleanDb(frames), outDb(frames), mixDb(frames);
     for (size_t k = 0; k < frames; ++k) {
@@ -573,6 +613,95 @@ bool runMix(const Corpus& corpus, const Mix& m, MixResult& r, std::string& error
     return true;
 }
 
+// Выход симуляции без задержки цепочки, оцененной по чистой речи.
+std::vector<float> alignedOutput(const std::vector<float>& clean, const std::vector<float>& output, size_t frame,
+                                 size_t& lag) {
+    lag = estimateLagSamples(clean, output, frame);
+    return {output.begin() + std::ptrdiff_t(std::min(lag, output.size())), output.end()};
+}
+
+// Reference позже микрофона на shift сэмплов (отрицательный - раньше).
+std::vector<float> shiftedReference(const std::vector<float>& refData, uint32_t refCh, int64_t shift) {
+    if (shift == 0 || refCh == 0) return refData;
+    const size_t n = size_t(std::llabs(shift)) * refCh;
+    if (shift > 0) {
+        std::vector<float> out(n, 0.0f);
+        out.insert(out.end(), refData.begin(), refData.end());
+        return out;
+    }
+    return {refData.begin() + std::ptrdiff_t(std::min(n, refData.size())), refData.end()};
+}
+
+bool runMix(const Corpus& corpus, const Mix& m, MixResult& r, std::string& error) {
+    AppConfig cfg;
+    if (!loadChainConfig(corpus, cfg, error)) return false;
+    const uint32_t rate = cfg.format.sampleRate;
+    const size_t frame = cfg.format.frameSamples;
+    std::vector<float> clean, noise, echoMic, refData;
+    uint32_t refCh = 0;
+    if (!readMicMono(m.speech, rate, clean, error)) return false;
+    if (!m.noise.empty() && !readMicMono(m.noise, rate, noise, error)) return false;
+    double micPpm = 0.0, refPpm = 0.0;
+    readDrift(m.speech / "metadata.json", micPpm, refPpm);
+    if (!m.echo.empty() && !readMicMono(m.echo, rate, echoMic, error)) return false;
+    if (const fs::path& refDir = m.echo.empty() ? m.render : m.echo; !refDir.empty()) {
+        uint32_t refRate = 0;
+        if (!readWavFile(refDir / "ref.wav", refData, refCh, refRate, error)) return false;
+        if (refRate != rate) {
+            error = "sample rate mismatch in " + (refDir / "ref.wav").string();
+            return false;
+        }
+        readDrift(refDir / "metadata.json", micPpm, refPpm);  // пара mic/ref записи согласована по дрейфу
+    }
+    std::vector<float> mix = clean;
+    addScaled(mix, noise, m.noiseGainDb);
+    addScaled(mix, echoMic, m.echoGainDb);
+
+    PipelineSim simClean;
+    if (!runChain(cfg, clean, {}, 0, micPpm, refPpm, simClean, error)) return false;
+    size_t lagClean = 0;
+    const std::vector<float> cleanOut = alignedOutput(clean, simClean.output, frame, lagClean);
+    const std::string dump = envVar("BOMBOEC_CORPUS_DUMP");
+    if (!dump.empty() && (!writeMono(fs::path(dump) / (m.name + ".in.wav"), mix, rate, error) ||
+                          !writeMono(fs::path(dump) / (m.name + ".clean-out.wav"), simClean.output, rate, error))) {
+        return false;
+    }
+
+    // Каждый сдвиг reference - отдельный прогон смеси, метрики усредняются (остаток - худший).
+    const std::vector<double> shifts = m.renderShiftsMs.empty() ? std::vector<double>{0.0} : m.renderShiftsMs;
+    r = MixResult{};
+    r.residualDb = -120.0;
+    for (const double shiftMs : shifts) {
+        const std::vector<float> ref = shiftedReference(refData, refCh, int64_t(std::llround(shiftMs * rate / 1000.0)));
+        PipelineSim simMix;
+        if (!runChain(cfg, mix, ref, refCh, micPpm, refPpm, simMix, error)) return false;
+        if (!dump.empty()) {
+            std::ostringstream name;
+            name << m.name << (shifts.size() > 1 ? ".out" + std::to_string(std::lround(shiftMs)) + "ms" : ".out")
+                 << ".wav";
+            if (!writeMono(fs::path(dump) / name.str(), simMix.output, rate, error)) return false;
+        }
+        // Выход смеси сверяется с чистой речью: помеху цепочка убирает, речь в выходе остаётся.
+        size_t lag = 0;
+        const std::vector<float> out = alignedOutput(clean, simMix.output, frame, lag);
+        MixResult one;
+        if (!mixMetrics(corpus, m, clean, mix, out, cleanOut, rate, frame, one, error)) return false;
+        const double w = 1.0 / double(shifts.size());
+        r.speechFrames = one.speechFrames;
+        r.noiseFrames = one.noiseFrames;
+        r.lsdDb += w * one.lsdDb;
+        r.lsdVsCleanOut += w * one.lsdVsCleanOut;
+        r.gainMedianDb += w * one.gainMedianDb;
+        r.dipFrac += w * one.dipFrac;
+        r.noiseReductionDb += w * one.noiseReductionDb;
+        r.residualDb = std::max(r.residualDb, one.residualDb);
+        r.snrInDb = one.snrInDb;
+        r.outLagMs += w * double(lag) * 1000.0 / rate;
+        r.transients += simMix.pipeline.chainStats().transients;
+    }
+    return true;
+}
+
 }  // namespace
 
 TEST_CASE("Corpus: recorded scenarios keep their echo, speech and noise metrics", "[corpus]") {
@@ -626,6 +755,7 @@ TEST_CASE("Corpus: recorded scenarios keep their echo, speech and noise metrics"
             }
             baseline << "]";
             INFO(report.str());
+            if (!configOverride.empty()) WARN(report.str());
             if (printBaseline || !configOverride.empty()) WARN("corpus " << sc.name << ": " << baseline.str());
             if (!configOverride.empty()) continue;
             const Thresholds& th = corpus.th;
@@ -670,7 +800,8 @@ TEST_CASE("Corpus mixes: clean speech plus a recorded disturbance stays close to
     size_t ran = 0;
     for (const Mix& m : corpus.mixes) {
         const bool present = fs::exists(m.speech / "mic.wav") && (m.noise.empty() || fs::exists(m.noise / "mic.wav")) &&
-                             (m.echo.empty() || fs::exists(m.echo / "ref.wav"));
+                             (m.echo.empty() || fs::exists(m.echo / "ref.wav")) &&
+                             (m.render.empty() || fs::exists(m.render / "ref.wav"));
         if (!present) {
             WARN("corpus: mix '" << m.name << "' skipped, recordings missing");
             continue;
@@ -693,12 +824,15 @@ TEST_CASE("Corpus mixes: clean speech plus a recorded disturbance stays close to
             baseline << "baseline = [" << std::round(r.lsdDb * 10.0) / 10.0 << ", "
                      << std::round(r.dipFrac * 1000.0) / 1000.0 << ", " << std::round(r.noiseReductionDb * 10.0) / 10.0
                      << "]";
+            if (!configOverride.empty()) WARN(report.str());
             if (printBaseline || !configOverride.empty()) WARN("corpus mix " << m.name << ": " << baseline.str());
             if (!configOverride.empty()) continue;
             const Thresholds& th = corpus.th;
             CHECK(r.lsdDb <= th.mixSpeechLsdMaxDb);
             CHECK(r.dipFrac <= th.mixDipMax);
             if (!m.noise.empty() || !m.echo.empty()) CHECK(r.noiseReductionDb >= th.mixNoiseMinDb);
+            // Звук, которого микрофон не слышит, не должен менять выход.
+            if (!m.render.empty()) CHECK(r.lsdVsCleanOut <= th.mixRenderMaxDb);
             if (m.baseLsd) CHECK(r.lsdDb <= *m.baseLsd + th.regressionToleranceDb);
             if (m.baseDip) CHECK(r.dipFrac <= *m.baseDip + 0.02);
             if (m.baseNoise) CHECK(r.noiseReductionDb >= *m.baseNoise - th.regressionToleranceDb);

@@ -28,7 +28,7 @@ bool Chain::init(const PipelineFormat& fmt, std::string& error) {
                     " Hz / " + std::to_string(fmt.frameSamples);
             return false;
         }
-        for (const Cap c : {Cap::Hpf, Cap::Aec, Cap::Ns, Cap::Agc, Cap::Limiter}) {
+        for (const Cap c : {Cap::Hpf, Cap::Aec, Cap::Ns, Cap::Agc, Cap::Limiter, Cap::Transient}) {
             if (hasCap(info.caps, c) && hasCap(caps_, c)) {
                 error = "capability '" + std::string(capName(c)) + "' declared twice (stage '" + info.id + "')";
                 return false;

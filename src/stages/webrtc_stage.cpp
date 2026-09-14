@@ -25,6 +25,10 @@
 //   nearend_hold_duration = 50,   nearend_trigger_threshold = 12
 //   high_bands_max_gain_during_echo = 1.0   потолок усиления выше 8 kHz во время эха
 //   conservative_hf_suppression = false
+//   echo_path_default_gain = 1.0   оценка эха в микрофоне как доля reference по амплитуде, пока
+//                                  адаптивный фильтр не сошёлся (старт, смена задержки) или эха
+//                                  нет вовсе. При 1.0 любой звук в колонках, даже неслышимый
+//                                  микрофоном, первые секунды давит голос сравнимого уровня.
 //
 // Заголовки WebRTC не выходят за пределы этого файла.
 
@@ -53,6 +57,7 @@ struct SuppressorTuning {
     int64_t nearendHoldDuration = 50, nearendTriggerThreshold = 12;
     double highBandsMaxGain = 1.0;
     bool conservativeHf = false;
+    double echoPathDefaultGain = 1.0;
 };
 
 void readSuppressorTuning(StageParams& cfg, SuppressorTuning& t) {
@@ -71,6 +76,7 @@ void readSuppressorTuning(StageParams& cfg, SuppressorTuning& t) {
     t.nearendTriggerThreshold = cfg.integer("nearend_trigger_threshold", t.nearendTriggerThreshold, 0, 10000);
     t.highBandsMaxGain = cfg.number("high_bands_max_gain_during_echo", t.highBandsMaxGain, 0.0, 1.0);
     t.conservativeHf = cfg.boolean("conservative_hf_suppression", t.conservativeHf);
+    t.echoPathDefaultGain = cfg.number("echo_path_default_gain", t.echoPathDefaultGain, 0.0, 1.0);
 }
 
 void applySuppressorTuning(const SuppressorTuning& t, webrtc::EchoCanceller3Config& aec3) {
@@ -91,6 +97,7 @@ void applySuppressorTuning(const SuppressorTuning& t, webrtc::EchoCanceller3Conf
     s.dominant_nearend_detection.trigger_threshold = int(t.nearendTriggerThreshold);
     s.high_bands_suppression.max_gain_during_echo = float(t.highBandsMaxGain);
     s.conservative_hf_suppression = t.conservativeHf;
+    aec3.ep_strength.default_gain = float(t.echoPathDefaultGain);
 }
 
 class WebrtcStage final : public IStage {

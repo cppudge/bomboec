@@ -15,10 +15,13 @@
 #                >= transient_min_db; в отчёте число событий и самый громкий остаток на выходе
 # На каждом сегменте: всплески (RMS 100 ms) на выходе не выше входа + burst_max_db.
 # Смеси [[mix]]: чистая речь (speech) плюс шум (noise, noise_gain_db) и/или эхо (echo: mic.wav
-# и ref.wav сценария с музыкой); выход сравнивается с чистой речью на её кадрах: спектральное
-# расстояние в 24 полосах <= mix_speech_lsd_max_db, доля кадров, просевших > 6 dB против
-# медианы, <= mix_dip_max; на кадрах без речи подавление >= mix_noise_min_db. baseline =
-# [lsd, dips, noise]. Так ловится порча голоса, которую RMS речи не показывает.
+# и ref.wav сценария с музыкой) или звук в колонках, который микрофон не слышит (render: только
+# ref.wav записи; render_shifts_ms - прогоны со сдвигом reference, метрики усредняются). Выход
+# сравнивается с чистой речью на её кадрах: спектральное расстояние в 24 полосах <=
+# mix_speech_lsd_max_db, доля кадров, просевших > 6 dB против медианы, <= mix_dip_max; на кадрах
+# без речи подавление >= mix_noise_min_db; со render выход не дальше mix_render_max_db от той же
+# речи, прошедшей цепочку без него. baseline = [lsd, dips, noise]. Так ловится порча голоса,
+# которую RMS речи не показывает.
 # baseline: подавление по сегментам (dB, в том же порядке) с прошлого прогона; ухудшение
 # больше regression_tolerance_db - ошибка. Обновить: BOMBOEC_CORPUS_BASELINE=1 bomboec_tests "[corpus]".
 
@@ -34,11 +37,13 @@ double_talk_min_db = 1.5   # речь громче эха: общее подав
 speech_max_loss_db = 4.0   # NS давит паузы между словами: RMS речи падает на 2-3 dB и без потери голоса
 quiet_min_reduction_db = 4.0
 burst_max_db = 6.0
-transient_min_db = 6.0     # шаблон без стадии transient: 12.4 dB; с ней 31.8
+transient_min_db = 6.0     # шаблон без гейта: 12.7 dB; с gate = true в rnnoise 37.2
 transient_event_db = 15.0
-mix_speech_lsd_max_db = 18.0  # эхо на уровне речи даёт 13.9: AEC3 давит голос в double-talk
+mix_speech_lsd_max_db = 18.0  # эхо на уровне речи даёт 10.8: AEC3 давит голос в double-talk
 mix_dip_max = 0.3
 mix_noise_min_db = 6.0
+mix_render_max_db = 0.5    # звук в колонках мимо микрофона: lsd против той же речи без него через
+                           # ту же цепочку. echo_path_default_gain 1.0 даёт 0.87, 0.4 даёт 0.22
 regression_tolerance_db = 1.5
 guard_sec = 0.3
 
@@ -51,7 +56,7 @@ segments = [
     { type = "double_talk", from = 10.0, to = 20.0 },
     { type = "speech", from = 20.0, to = 30.0 },
 ]
-baseline = [36.1, 3.1, 2.4]   # 2026-09-12, hpf 90 Hz + AEC3 + rnnoise, lead 5 ms
+baseline = [37.5, 3.1, 2.4]   # 2026-09-14, hpf 90 Hz + AEC3 (echo_path_default_gain 0.4) + rnnoise, lead 5 ms
 
 # Сценарии scripts/record-corpus.ps1 (recordings/corpus/<name>).
 # Записаны 2026-09-12 (Yeti Orb, Sound Blaster Z, шум bomboec-play --noise на -14 dB); baseline с rnnoise.
@@ -59,19 +64,19 @@ baseline = [36.1, 3.1, 2.4]   # 2026-09-12, hpf 90 Hz + AEC3 + rnnoise, lead 5 m
 name = "silence"
 dir = "corpus/silence"
 segments = [{ type = "silence", from = 0.0, to = 20.0 }]
-baseline = [39.2]
+baseline = [38.9]
 
 [[scenario]]
 name = "noise"
 dir = "corpus/noise"
 segments = [{ type = "noise", from = 0.0, to = 20.0 }]
-baseline = [18.8]   # 27.3 со стадией transient
+baseline = [19.5]   # 30.0 с gate = true в rnnoise
 
 [[scenario]]
 name = "music"
 dir = "corpus/music"
 segments = [{ type = "echo", from = 1.0, to = 30.0 }]
-baseline = [50.5]
+baseline = [54.0]   # 50.5 при echo_path_default_gain 1.0
 
 [[scenario]]
 name = "speech"
@@ -90,41 +95,42 @@ baseline = [2.1]
 name = "speech-call"
 dir = "corpus/speech-call"
 segments = [{ type = "speech", from = 0.0, to = 30.0 }]
-baseline = [1.1]
+baseline = [1.2]
 
 # Стуки по столу, щелчки, кружка, стойка микрофона; без речи и музыки. Baseline после записи.
 [[scenario]]
 name = "transients"
 dir = "corpus/transients"
 segments = [{ type = "transients", from = 0.0, to = 20.0 }]
-# 2026-09-12: без гейта 12.4 (остаток до -11.3 dBFS); со стадией transient 31.8 (остаток -29.9).
-baseline = [12.4]
+# 2026-09-14: без гейта 12.7 (остаток до -11.5 dBFS); с gate = true в rnnoise 37.2 (остаток -33.5).
+baseline = [12.7]
 
-# Смеси из тех же записей (2026-09-12, шаблон hpf 90 Hz + AEC3 + rnnoise). Сама цепочка на чистой
-# речи: lsd 5.1, провалы 8.9 % (тихие согласные); помеха добавляет к этому 2-4 dB lsd, эхо на
-# уровне речи 9 dB (было 15 до настройки подавителя AEC3, см. docs/research/2026-09-12-ns-quality.md).
+# Смеси из тех же записей (шаблон hpf 90 Hz + AEC3 + rnnoise; выход выровнен до сэмпла с 2026-09-14,
+# до того до кадра, и lsd с эхом был завышен на 3 dB). Сама цепочка на чистой речи: lsd 4.9, провалы
+# 9.0 % (тихие согласные); помеха добавляет к этому 1-3 dB lsd, эхо на уровне речи 6 dB
+# (docs/research/2026-09-12-ns-quality.md, docs/research/2026-09-14-transient-gate.md).
 [[mix]]
 name = "speech-alone"
 speech = "corpus/speech"
-baseline = [5.1, 0.089, 16.0]
+baseline = [4.9, 0.09, 15.9]
 
 [[mix]]
 name = "speech+keyboard"
 speech = "corpus/speech"
 noise = "corpus/noise"
-baseline = [7.8, 0.118, 24.5]
+baseline = [6.2, 0.103, 24.2]
 
 [[mix]]
 name = "speech+knocks"
 speech = "corpus/speech"
 noise = "corpus/transients"
-baseline = [8.8, 0.121, 24.0]
+baseline = [7.5, 0.097, 17.4]
 
 [[mix]]
 name = "speech+music-echo"
 speech = "corpus/speech"
 echo = "corpus/music"
-baseline = [13.9, 0.241, 29.9]
+baseline = [10.9, 0.18, 35.3]
 
 # Колонки тише: эхо на 10 dB ниже речи, ближе к разговору при умеренной громкости.
 [[mix]]
@@ -132,31 +138,43 @@ name = "speech+music-echo-10"
 speech = "corpus/speech"
 echo = "corpus/music"
 echo_gain_db = -10.0
-baseline = [7.5, 0.108, 26.3]
+baseline = [7.0, 0.108, 26.3]
 
 # Те же смеси на живой речи (speech-call, пик -6 dBFS): громкий голос цепочка портит меньше
-# (lsd 3.5 против 5.1 на тихом чтении). Гейт transient без проверки гармоничности срабатывал на
+# (lsd 3.4 против 4.9 на тихом чтении). Гейт transient без проверки гармоничности срабатывал на
 # нём сам по себе (провалы 3.9 % -> 11 % без всякой помехи), что и слышал пользователь.
 [[mix]]
 name = "call-alone"
 speech = "corpus/speech-call"
-baseline = [3.5, 0.039, 12.9]
+baseline = [3.4, 0.039, 12.8]
 
 [[mix]]
 name = "call+keyboard"
 speech = "corpus/speech-call"
 noise = "corpus/noise"
-baseline = [5.0, 0.044, 23.1]
+baseline = [5.0, 0.047, 23.1]
 
 [[mix]]
 name = "call+knocks"
 speech = "corpus/speech-call"
 noise = "corpus/transients"
-baseline = [5.5, 0.05, 29.3]
+baseline = [5.5, 0.05, 29.4]
 
 [[mix]]
 name = "call+music-echo-10"
 speech = "corpus/speech-call"
 echo = "corpus/music"
 echo_gain_db = -10.0
-baseline = [5.9, 0.06, 22.8]
+baseline = [5.8, 0.061, 22.5]
+
+# Живая речь и тихий звук в колонках (loopback той же записи, около -46 dBFS), до микрофона не
+# доходящий. Пока адаптивный фильтр не сошёлся, AEC3 оценивает эхо как reference с усилением
+# echo_path_default_gain; при штатном 1.0 он первые 6 секунд резал слова на 20-50 dB, а эхо без
+# речи этого не показывает (docs/research/2026-09-14-aec-startup.md). Порча зависит от сдвига
+# reference на единицы ms хаотично (от 0 до 6.6 % кадров), поэтому прогонов шесть.
+[[mix]]
+name = "call+quiet-render"
+speech = "corpus/speech-call"
+render = "corpus/speech-call"
+render_shifts_ms = [0.0, 1.0, 2.0, 3.0, 5.0, 7.0]
+baseline = [3.5, 0.041, 12.8]   # при 1.0: [4.1, 0.06, 13.0], против той же речи без звука 0.87 dB

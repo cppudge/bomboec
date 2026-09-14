@@ -4,6 +4,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 #include <random>
@@ -215,6 +216,67 @@ TEST_CASE("Transient stage with the harmonicity check passes a voiced attack and
     CHECK(20.0 * std::log10(loudest / 0.001) < 25.0);  // без гейта всплеск был бы около 40 dB
 }
 
+TEST_CASE("Transient stage duck mode pulls a knock down to the voice under it and lets the voice back at once") {
+    const PipelineFormat fmt;
+    const uint32_t n = fmt.frameSamples;
+    // Голос: тон 150 Hz на -37 dBFS; удар: шумовой всплеск -10 dBFS с затуханием 3 ms в кадре 10
+    // (над голосом больше rise_db_per_ms, иначе детектор удар поверх голоса не видит).
+    std::mt19937 rng(13);
+    std::normal_distribution<float> noise(0.0f, 1.0f);
+    std::vector<float> in(20 * n);
+    for (size_t k = 0; k < in.size(); ++k) {
+        const double t = double(k) - double(10 * n + 200);
+        const float knock = t >= 0.0 ? float(0.3 * std::exp(-t / 144.0)) * noise(rng) : 0.0f;
+        in[k] = float(0.02 * std::sin(2.0 * std::numbers::pi * 150.0 * double(k) / fmt.sampleRate)) + knock;
+    }
+    auto run = [&](const char* mode, uint64_t& triggers) {
+        auto stage = makeTransientStage();
+        toml::table cfg;
+        cfg.insert("mode", mode);
+        cfg.insert("harmonicity_max", 0.4);
+        cfg.insert("lookahead_ms", 4.0);
+        cfg.insert("release_ms", 20.0);
+        std::string error;
+        StageParams params(cfg);
+        REQUIRE(stage->init(fmt, params, error));
+        std::vector<float> out;
+        uint64_t before = 0;
+        for (size_t f = 0; f < 20; ++f) {
+            Frame mic(1, n);
+            std::copy_n(in.begin() + std::ptrdiff_t(f * n), n, mic.channel(0).begin());
+            stage->process(mic, nullptr);
+            if (f == 5) before = stage->stats().transients;  // старт тона из тишины не в счёт
+            out.insert(out.end(), mic.channel(0).begin(), mic.channel(0).end());
+        }
+        triggers = stage->stats().transients - before;
+        return out;
+    };
+    const auto rmsDb = [](const std::vector<float>& x, size_t from, size_t count) {
+        double e = 0.0;
+        for (size_t i = from; i < from + count; ++i) e += double(x[i]) * x[i];
+        return 10.0 * std::log10(e / double(count) + 1e-12);
+    };
+    uint64_t holdTriggers = 0, duckTriggers = 0;
+    const std::vector<float> hold = run("hold", holdTriggers);
+    const std::vector<float> duck = run("duck", duckTriggers);
+    CHECK(holdTriggers == 1);
+    CHECK(duckTriggers == 1);
+    const size_t look = 4 * 48;  // выход отстаёт на lookahead
+    const size_t knock = 10 * n + 200 + look;
+    // Удар (первые 5 ms): оба режима давят; duck - до уровня голоса плюс margin, не на всю глубину.
+    const double knockIn = rmsDb(in, 10 * n + 200, 240);
+    const double knockHold = rmsDb(hold, knock, 240), knockDuck = rmsDb(duck, knock, 240);
+    INFO("knock: in " << knockIn << ", hold " << knockHold << ", duck " << knockDuck << " dBFS");
+    CHECK(knockHold < knockIn - 17.0);
+    CHECK(knockDuck < knockIn - 8.0);
+    // Голос через 30-50 ms после удара: hold ещё держит -20 dB, duck уже отпустил.
+    const double voiceIn = rmsDb(in, 10 * n + 200 + 1440, 960);
+    const double voiceHold = rmsDb(hold, knock + 1440, 960), voiceDuck = rmsDb(duck, knock + 1440, 960);
+    INFO("voice after the knock: in " << voiceIn << ", hold " << voiceHold << ", duck " << voiceDuck << " dBFS");
+    CHECK(voiceHold < voiceIn - 10.0);
+    CHECK(voiceDuck > voiceIn - 2.0);
+}
+
 TEST_CASE("Transient stage keys are checked") {
     const PipelineFormat fmt;
     auto stage = makeTransientStage();
@@ -223,6 +285,11 @@ TEST_CASE("Transient stage keys are checked") {
     std::string error;
     StageParams params(cfg);
     CHECK_FALSE(stage->init(fmt, params, error));
+
+    toml::table modeCfg;
+    modeCfg.insert("mode", "soft");  // только hold или duck
+    StageParams modeParams(modeCfg);
+    CHECK_FALSE(makeTransientStage()->init(fmt, modeParams, error));
 }
 
 TEST_CASE("RNNoise input_gain_db changes the operating point but not the output level") {
@@ -259,6 +326,7 @@ TEST_CASE("WebRTC stage takes the AEC3 suppressor keys and rejects out-of-range 
     cfg.insert("nearend_enr_threshold", 0.35);
     cfg.insert("nearend_trigger_threshold", 3);
     cfg.insert("nearend_hold_duration", 100);
+    cfg.insert("echo_path_default_gain", 0.4);
     std::string error;
     StageParams params(cfg);
     REQUIRE(stage->init(fmt, params, error));
@@ -268,6 +336,11 @@ TEST_CASE("WebRTC stage takes the AEC3 suppressor keys and rejects out-of-range 
     bad.insert("nearend_enr_threshold", -1.0);
     StageParams badParams(bad);
     CHECK_FALSE(stage->init(fmt, badParams, error));
+
+    toml::table badGain;
+    badGain.insert("echo_path_default_gain", 1.5);
+    StageParams badGainParams(badGain);
+    CHECK_FALSE(stage->init(fmt, badGainParams, error));
 }
 
 TEST_CASE("WebRTC stage cancels a delayed synthetic echo") {
@@ -309,6 +382,80 @@ TEST_CASE("WebRTC stage cancels a delayed synthetic echo") {
     INFO("attenuation dB = " << attenuationDb);
     CHECK(attenuationDb > 15.0);
     CHECK(stage->stats().erlDb.has_value());
+}
+
+TEST_CASE("WebRTC stage keeps near-end voice under an unrelated quiet reference with echo_path_default_gain") {
+    // Слоги голоса в микрофоне и тихий низкочастотный шум в колонках, которого микрофон не
+    // слышит. Пока фильтр AEC3 не сошёлся, он считает эхо равным reference с усилением
+    // echo_path_default_gain: при штатном 1.0 голос того же уровня давится.
+    const PipelineFormat fmt;
+    constexpr int kFrames = 400;
+    const size_t n = size_t(kFrames) * fmt.frameSamples;
+    std::vector<float> voice(n), refL(n), refR(n);
+    std::vector<bool> on(kFrames);
+    double voiceE = 0.0, refE = 0.0;
+    std::mt19937 rng(3);
+    std::normal_distribution<float> noise(0.0f, 1.0f);
+    const float a = 1.0f - float(std::exp(-2.0 * std::numbers::pi * 300.0 / fmt.sampleRate));
+    float l1 = 0, l2 = 0, r1 = 0, r2 = 0;  // два однополюсных ФНЧ 300 Hz на канал
+    for (size_t i = 0; i < n; ++i) {
+        const double t = double(i) / fmt.sampleRate;
+        const bool syllable = std::fmod(t, 0.3) < 0.2;  // 200 ms голос, 100 ms пауза
+        on[i / fmt.frameSamples] = syllable;
+        double v = 0.0;
+        for (int k = 1; k <= 11; ++k) v += std::sin(2.0 * std::numbers::pi * 150.0 * k * t) / k;
+        voice[i] = syllable ? float(v) : 0.0f;
+        voiceE += syllable ? v * v : 0.0;
+        l1 += a * (noise(rng) - l1);
+        l2 += a * (l1 - l2);
+        r1 += a * (noise(rng) - r1);
+        r2 += a * (r1 - r2);
+        refL[i] = l2;
+        refR[i] = r2;
+        refE += double(l2) * l2;
+    }
+    const double onShare = double(std::count(on.begin(), on.end(), true)) / kFrames;
+    const float voiceGain = float(std::pow(10.0, -30.0 / 20.0) / std::sqrt(voiceE / (double(n) * onShare)));
+    const float refGain = float(std::pow(10.0, -40.0 / 20.0) / std::sqrt(refE / double(n)));
+
+    // Уровни кадров выхода, dBFS.
+    auto run = [&](double gain, bool withRef) {
+        auto stage = makeWebrtcStage();
+        toml::table cfg;
+        cfg.insert("echo_path_default_gain", gain);
+        std::string error;
+        StageParams params(cfg);
+        REQUIRE(stage->init(fmt, params, error));
+        Frame mic(1, fmt.frameSamples), ref(2, fmt.frameSamples);
+        std::vector<double> levels(kFrames);
+        for (int f = 0; f < kFrames; ++f) {
+            for (uint32_t i = 0; i < fmt.frameSamples; ++i) {
+                const size_t k = size_t(f) * fmt.frameSamples + i;
+                mic.channel(0)[i] = voiceGain * voice[k];
+                ref.channel(0)[i] = withRef ? refGain * refL[k] : 0.0f;
+                ref.channel(1)[i] = withRef ? refGain * refR[k] : 0.0f;
+            }
+            stage->process(mic, &ref);
+            levels[size_t(f)] = 20.0 * std::log10(rms(mic.channel(0)) + 1e-9);
+        }
+        return levels;
+    };
+    // Доля кадров голоса (выход без reference громче -45 dBFS), просевших с reference > 6 dB.
+    auto dippedShare = [&](double gain) {
+        const std::vector<double> quiet = run(gain, false), loud = run(gain, true);
+        size_t voiced = 0, dipped = 0;
+        for (size_t f = 50; f < quiet.size(); ++f) {
+            if (quiet[f] < -45.0) continue;
+            ++voiced;
+            if (loud[f] < quiet[f] - 6.0) ++dipped;
+        }
+        REQUIRE(voiced > 100);
+        return double(dipped) / double(voiced);
+    };
+    const double stock = dippedShare(1.0), low = dippedShare(0.4);
+    INFO("dipped share: gain 1.0 " << stock << ", gain 0.4 " << low);
+    CHECK(stock > 0.4);
+    CHECK(low < 0.2);
 }
 
 TEST_CASE("WebRTC stage without AEC still needs a feature, works without reference") {
